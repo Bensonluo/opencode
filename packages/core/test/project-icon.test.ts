@@ -78,3 +78,91 @@ it.live("resolves in the background, preserves overrides, and only writes change
     expect(changed).toMatchObject({ icon_url_override: "my-icon", icon_color: "blue" })
   }),
 )
+
+for (const fixture of [
+  { name: "root Composer SVG", file: "AppIcon.icon/Assets/logo.svg", manifest: "AppIcon.icon/icon.json" },
+  { name: "app Composer PNG", file: "app/AppIcon.icon/Assets/logo.png", manifest: "app/AppIcon.icon/icon.json" },
+  {
+    name: "assets Composer SVG",
+    file: "assets/AppIcon.icon/Assets/logo.svg",
+    manifest: "assets/AppIcon.icon/icon.json",
+  },
+  { name: "direct-child Xcode catalog", file: "OpenCode/Assets.xcassets/AppIcon.appiconset/icon128.svg" },
+  { name: "Windows nearest usable size", file: "resources/windows/icon-96.png" },
+  { name: "Scrawl oversized flat icon", file: "site/public/icon.svg" },
+]) {
+  it.live(`discovers ${fixture.name} without a database`, () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const filesystem = yield* FSUtil.Service
+      yield* Effect.promise(() =>
+        Bun.write(
+          path.join(tmp.path, fixture.file),
+          fixture.file.endsWith(".png")
+            ? Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII=",
+                "base64",
+              )
+            : svg,
+        ),
+      )
+      if (fixture.manifest)
+        yield* Effect.promise(() =>
+          Bun.write(
+            path.join(tmp.path, fixture.manifest),
+            JSON.stringify({
+              groups: [{ layers: [{ "image-name": path.basename(fixture.file) }] }],
+            }),
+          ),
+        )
+      if (fixture.name === "Windows nearest usable size") {
+        yield* Effect.promise(() => Bun.write(path.join(tmp.path, "resources/windows/icon-128.png"), "x".repeat(65537)))
+        yield* Effect.promise(() => Bun.write(path.join(tmp.path, "resources/windows/icon-32.png"), "other"))
+      }
+      if (fixture.name === "Scrawl oversized flat icon")
+        yield* Effect.promise(() => Bun.write(path.join(tmp.path, "assets/app-icon.png"), "x".repeat(65537)))
+      expect((yield* ProjectIcon.discover(filesystem, tmp.path))?.path.split(path.sep).join("/")).toBe(fixture.file)
+    }),
+  )
+}
+
+it.live("Composer backgrounds stay inert and malformed, oversized or escaping manifests fall through", () =>
+  Effect.gen(function* () {
+    const tmp = yield* tmpdirScoped()
+    const filesystem = yield* FSUtil.Service
+    const manifest = path.join(tmp.path, "AppIcon.icon/icon.json")
+    yield* Effect.promise(() => Bun.write(path.join(tmp.path, "AppIcon.icon/Assets/logo.svg"), svg))
+    for (const fill of [
+      { solid: "display-p3:0.075,0.063,0.063,1" },
+      { "linear-gradient": ["gray:0.2,1", "srgb:0,0,0,1"] },
+    ]) {
+      yield* Effect.promise(() =>
+        Bun.write(manifest, JSON.stringify({ fill, groups: [{ layers: [{ "image-name": "logo.svg" }] }] })),
+      )
+      const icon = yield* ProjectIcon.discover(filesystem, tmp.path)
+      if (!icon) throw new Error("Expected Composer icon")
+      const markup = Buffer.from(icon.url.slice(icon.url.indexOf(",") + 1), "base64").toString()
+      expect(markup).toContain(`<image width="128" height="128" href="${url}"`)
+      expect(markup).toContain("<rect")
+      expect(icon.url.length).toBeLessThanOrEqual(65536)
+    }
+    for (const content of [
+      "{",
+      "x".repeat(65537),
+      JSON.stringify({ groups: [{ layers: [{ "image-name": "missing.svg" }] }] }),
+    ]) {
+      yield* Effect.promise(() => Bun.write(manifest, content))
+      expect(yield* ProjectIcon.discover(filesystem, tmp.path)).toBeUndefined()
+    }
+    const outside = yield* tmpdirScoped()
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(outside.path, "icon.json"),
+        JSON.stringify({ groups: [{ layers: [{ "image-name": "logo.svg" }] }] }),
+      ),
+    )
+    yield* Effect.promise(() => fs.rm(manifest))
+    yield* Effect.promise(() => fs.symlink(path.join(outside.path, "icon.json"), manifest))
+    expect(yield* ProjectIcon.discover(filesystem, tmp.path)).toBeUndefined()
+  }),
+)
