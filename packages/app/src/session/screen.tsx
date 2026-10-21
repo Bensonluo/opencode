@@ -7,6 +7,7 @@ import {
   Switch,
   createMemo,
   createEffect,
+  createSignal,
   on,
   onCleanup,
   untrack,
@@ -41,6 +42,8 @@ import { TimelineSearchBar } from "./timeline/search-bar"
 import { createTimelineQuote, TimelineQuote } from "./timeline/quote"
 import { ActiveSessionComposerRegion, createActiveSessionRegion } from "./composer/region"
 import { SessionIdentityHeader, SessionLocation } from "./session-identity-header"
+import { SessionHeaderDrag, windowDragEnabled } from "./header/drag-area"
+import { usePlatform } from "@/runtime/platform/platform"
 import { useServer } from "@/runtime/server/current"
 import { SessionReviewToggle } from "./header/session-header-actions"
 import { createTimelineCache } from "./timeline/cache"
@@ -84,6 +87,7 @@ function SessionScreenContent(props: {
     screen: props.screen,
     tabs: session.layout.tabs,
     closed: attachment.closed,
+    open: (key) => attachment.openTab(key, props.view()),
     side: () => session.layout.view().side,
     // Closing the last tab closes the side region, which opens with a new tab next time. The user's own hand closed
     // it, so it goes at once.
@@ -232,6 +236,15 @@ function SessionScreenContent(props: {
     return <SessionErrorFallback error={cause} sessionID={session.identity.params.id} />
   }
 
+  const platform = usePlatform()
+  const [headerGap, setHeaderGap] = createSignal<HTMLElement>()
+
+  const registerHeaderGap = (gap: HTMLElement) => {
+    setHeaderGap(gap)
+
+    return () => setHeaderGap((current) => (current === gap ? undefined : current))
+  }
+
   const timelineView = createTimelineCache(
     session,
     (source, active) => {
@@ -246,6 +259,7 @@ function SessionScreenContent(props: {
         <MessageTimeline
           active={active()}
           hideHeader={!isDesktop()}
+          registerHeaderGap={registerHeaderGap}
           session={source}
           view={own()}
           screen={props.screen}
@@ -427,6 +441,9 @@ function SessionScreenContent(props: {
               <SessionPanelFrame raised>
                 <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
               </SessionPanelFrame>
+            </Show>
+            <Show when={windowDragEnabled(platform)}>
+              <SessionHeaderDrag pane={chat} gap={headerGap()} />
             </Show>
 
             <Show when={screen.panel.resizable()}>

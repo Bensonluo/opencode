@@ -118,6 +118,76 @@ for (const direction of ["ltr", "rtl"] as const) {
   })
 }
 
+// A frameless desktop window moves when its titlebar row is dragged. The session header continues that row through one
+// area over the empty gap between the title and the actions, so no control sits under it.
+for (const direction of ["ltr", "rtl"] as const) {
+  test(`the desktop session header drags the window from the gap after the title in ${direction}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await mockStressTimeline(page)
+    await page.goto(
+      `/e2e/utils/windows-menu.html?${new URLSearchParams({ server: fixture.serverKey, path: sessionHref(fixture.targetID, "sidecar") })}`,
+    )
+    const header = page.locator("[data-session-title]")
+    const area = page.locator('[data-slot="session-header-drag"]')
+    const options = header.getByRole("button", { name: "More options", exact: true })
+    const actions = header.locator(".session-header-actions")
+    await expect(header.getByRole("heading")).toHaveText(fixture.expected.targetTitle)
+    await page.evaluate((direction) => document.documentElement.setAttribute("dir", direction), direction)
+    await expect(area).toHaveCSS("app-region", "drag")
+    await expect(page.locator('[data-slot="shell-drag-inset"]')).toHaveCSS("app-region", "drag")
+
+    const gap = header.locator('[data-slot="session-header-gap"]')
+    const aligned = async () => {
+      const [box, space, end, start, row] = await Promise.all([
+        area.boundingBox(),
+        gap.boundingBox(),
+        options.boundingBox(),
+        actions.boundingBox(),
+        header.locator(".session-header-layout").boundingBox(),
+      ])
+
+      if (!box || !space || !end || !start || !row) return false
+      const between =
+        direction === "ltr"
+          ? space.x >= end.x + end.width && space.x + space.width <= start.x
+          : space.x + space.width <= end.x && space.x >= start.x + start.width
+
+      return (
+        between &&
+        Math.abs(box.x - space.x) <= 0.5 &&
+        Math.abs(box.width - space.width) <= 0.5 &&
+        Math.abs(box.y - row.y) <= 0.5 &&
+        Math.abs(box.height - row.height) <= 0.5
+      )
+    }
+
+    await expect.poll(aligned).toBe(true)
+
+    // The area lives outside the timeline's scroller, so scrolling leaves it over the header.
+    const timeline = page.locator('[data-slot="session-timeline-scroll"]')
+    await timeline.hover()
+    await page.mouse.wheel(0, -2000)
+    await expect.poll(aligned).toBe(true)
+
+    // The rename field takes the gap's place, so the area steps aside until the title is back.
+    await header.getByRole("heading").click()
+    await expect(header.getByRole("textbox")).toBeFocused()
+    await expect(area).toBeHidden()
+    await header.getByRole("textbox").press("Escape")
+    await expect(area).toBeVisible()
+  })
+}
+
+test("the web session header leaves window dragging to the browser", async ({ page }) => {
+  await mockStressTimeline(page)
+  await seed(page, { tabs: [fixture.targetID] })
+  await page.goto(sessionHref(fixture.targetID))
+  const header = page.locator("[data-session-title]")
+  await expect(header.getByRole("heading")).toHaveText(fixture.expected.targetTitle)
+  await expect(page.locator('[data-slot="session-header-drag"]')).toHaveCount(0)
+  await expect(page.locator('[data-slot="shell-drag-inset"]')).toHaveCount(0)
+})
+
 test.describe("location", () => {
   const root = "C:/OpenCode/Location"
   const worktree = "C:/OpenCode/Worktrees/location/quiet-falcon"

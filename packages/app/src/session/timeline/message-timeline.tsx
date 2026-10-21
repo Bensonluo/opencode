@@ -32,6 +32,7 @@ import {
   SessionTitleHeader,
 } from "../session-identity-header"
 import { SessionHeaderSpacer } from "@/session/header/session-header"
+import { SessionHeaderGap } from "@/session/header/drag-area"
 import { SessionWorkingIndicator } from "@/session/header/session-working-indicator"
 
 type BlockingTask = { type: "shell" | "subagent"; partID: string; id?: string; label?: string }
@@ -66,6 +67,8 @@ export function BackgroundMoveHint(props: { keybind?: string[]; onMove?: () => v
 
 type MessageTimelineProps = {
   hideHeader?: boolean
+  /** Hands the header's empty gap to the pane's window drag area. */
+  registerHeaderGap?: (gap: HTMLElement) => () => void
   active?: boolean
   session: TimelineSessionSource
   view: MountedSession
@@ -638,6 +641,9 @@ function MessageTimelineView(
                     </Menu.Portal>
                   </Menu>
                 )}
+              </Show>
+              <Show when={!title.editing}>
+                <SessionHeaderGap active={props.active !== false} register={props.registerHeaderGap} />
               </Show>
             </SessionHeaderLayout>
           </SessionTitleHeader>

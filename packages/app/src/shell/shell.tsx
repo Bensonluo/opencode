@@ -15,6 +15,7 @@ import { useCommand } from "@/shell/commands/command"
 import { useLanguage } from "@/runtime/i18n/language"
 import { CollapsedSidebarToggle, paintCollapsedSlots } from "@/shell/sidebar-toggle"
 import { createPanelMotion, guardClosingFocus, replayPanelToggle } from "@/shell/panel-motion"
+import { windowDragEnabled } from "@/session/header/drag-area"
 
 export default function Layout(props: ParentProps) {
   const platform = usePlatform()
@@ -75,6 +76,7 @@ export default function Layout(props: ParentProps) {
       : [],
   )
   const bottomTitlebar = () => mobile() && preferences.general.mobileTitlebarPosition() === "bottom"
+  const dragInset = () => windowDragEnabled(platform) && !mobile()
 
   return (
     <TitlebarRightProvider>
@@ -96,7 +98,16 @@ export default function Layout(props: ParentProps) {
         }}
       >
         <Titlebar verticalTabs={verticalTabs() ? { mount: state.tabsMount } : undefined} />
-        <div class="flex flex-1 min-h-0 min-w-0 flex-row">
+        <div class="relative flex flex-1 min-h-0 min-w-0 flex-row">
+          {/* The empty inset above the panels moves the window, as the titlebar does. */}
+          <Show when={dragInset()}>
+            <div
+              data-slot="shell-drag-inset"
+              aria-hidden="true"
+              class="absolute inset-x-0 top-0 h-[var(--shell-top-inset,8px)]"
+              data-tauri-drag-region
+            />
+          </Show>
           <Show when={verticalTabs()}>
             <aside
               id="vertical-tabs-sidebar"
