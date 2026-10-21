@@ -1,7 +1,6 @@
 import "@/index.css"
 import { render } from "solid-js/web"
 import { DialogProvider } from "@opencode/ui/context/dialog"
-import { MarkedProvider } from "@opencode/ui/context/marked"
 import { ThemeProvider, useTheme } from "@opencode/ui/theme"
 import { LanguageProvider, UiI18nBridge } from "@/runtime/i18n/language"
 import { motionTuning } from "@opencode/ui/motion-tuning"
@@ -18,9 +17,7 @@ render(
       <LanguageProvider locale="en">
         <UiI18nBridge>
           <DialogProvider>
-            <MarkedProvider>
-              <Preview />
-            </MarkedProvider>
+            <Preview />
           </DialogProvider>
         </UiI18nBridge>
       </LanguageProvider>
