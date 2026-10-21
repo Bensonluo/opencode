@@ -262,11 +262,11 @@ export function createTimelineVirtualizer(input: Input) {
   let deferredTop: number | undefined
   let precommittedTop: number | undefined
   let flushScrollFrame: (() => void) | undefined
-  let lastHeaderWidth: number | undefined
   // Sizes held back from rows still streaming, applied once their text completes.
   const shrinks = new Map<string, number>()
 
-  const [headerHeight, setHeaderHeight] = createSignal(48)
+  // The session header is a fixed 48px, the same fallback --sticky-accordion-top uses.
+  const headerHeight = 48
 
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
@@ -279,15 +279,7 @@ export function createTimelineVirtualizer(input: Input) {
       reportRect = (rect) => {
         const widthChanged = Math.abs(rect.width - (instance.scrollRect?.width ?? 0)) >= 1
         if (widthChanged) rewrap()
-        const root = listRoot()
-        batch(() => {
-          // The container-responsive header can be 48px or 80px, and only a new width can change it.
-          if (root && (widthChanged || lastHeaderWidth !== rect.width)) {
-            lastHeaderWidth = rect.width
-            setHeaderHeight(parseFloat(getComputedStyle(root).getPropertyValue("--session-header-height")) || 48)
-          }
-          callback({ width: rect.width, height: Math.max(0, rect.height - bottomInset()) })
-        })
+        callback({ width: rect.width, height: Math.max(0, rect.height - bottomInset()) })
       }
 
       return observeElementRect(instance, (rect) => {
@@ -415,7 +407,7 @@ export function createTimelineVirtualizer(input: Input) {
     paddingEnd: tailSize,
     // Revealed prompts sit below the solid header and its 16px fade.
     get scrollPaddingStart() {
-      return input.showHeader() ? headerHeight() + 16 : 0
+      return input.showHeader() ? headerHeight + 16 : 0
     },
     get rangeExtractor() {
       return rangeExtractor()
