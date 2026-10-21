@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, on, Show, untrack } from "solid-js"
+import { createEffect, createMemo, createRenderEffect, createSignal, For, on, Show, untrack } from "solid-js"
 import { DragDropProvider, PointerSensor } from "@dnd-kit/solid"
 import { isSortable, useSortable } from "@dnd-kit/solid/sortable"
 import { AutoScroller, Feedback, PointerActivationConstraints } from "@dnd-kit/dom"
@@ -12,6 +12,7 @@ import { Spinner } from "@opencode/ui/spinner"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import type { SessionQueueView } from "./queue"
+import { prepareSendFlight } from "@/session/timeline/send-flight"
 import { Grow } from "./spring-height"
 import "./queue-panel.css"
 
@@ -142,6 +143,20 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
   // parked queue resumes.
   const active = () => !props.queue.working() && props.index === 0
 
+  let root: HTMLDivElement | undefined
+  let text: HTMLButtonElement | undefined
+  // Like a sent message, a prompt that leaves the queue for the timeline flies from its row onto its bubble. Removed
+  // or undone prompts never land, so their copy expires unseen.
+  createRenderEffect(
+    on(
+      leaving,
+      (now) => {
+        if (now) prepareSendFlight(props.id, text, root)
+      },
+      { defer: true },
+    ),
+  )
+
   const sortable = useSortable({
     get id() {
       return props.id
@@ -158,7 +173,10 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
     <Show when={row()} keyed>
       {(entry) => (
         <div
-          ref={sortable.ref}
+          ref={(el) => {
+            root = el
+            sortable.ref(el)
+          }}
           data-component={leaving() ? undefined : "session-queue-row"}
           data-leaving={leaving() || undefined}
           aria-busy={leaving() ? undefined : entry.pending}
@@ -182,6 +200,7 @@ function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: nu
             <div class="flex min-w-0 items-center gap-4">
               <button
                 type="button"
+                ref={text}
                 data-action="session-queue-edit"
                 dir="auto"
                 aria-disabled={entry.pending}
