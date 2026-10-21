@@ -1,19 +1,13 @@
 import { Popover } from "@kobalte/core/popover"
-import type { PluginInfo } from "@opencode/client"
-import { Button } from "@opencode/ui/button"
-import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
-import { ErrorDetails } from "@opencode/ui/error-details"
 import { Icon } from "@opencode/ui/icon"
-import { Switch } from "@opencode/ui/switch"
 import { showToast } from "@opencode/ui/toast"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { TruncatedText } from "@opencode/ui/truncated-text"
 import { getDirectory } from "@opencode/util/path"
-import { useMutation } from "@tanstack/solid-query"
-import { children, createMemo, createResource, createSignal, For, Index, on, onCleanup, Show, type JSX } from "solid-js"
+import { children, createMemo, createSignal, For, Index, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { createKeyed, useDrawer, useExtension, type MountedSession } from "../sdk"
-import { configuredLsps } from "./configured-lsp"
+import { useDrawer, useExtension, type MountedSession } from "../sdk"
+import { McpServerControl, useConfig, useMcpRow, useMcpServers, useMcpToggle, usePlugins, useSkills } from "./services"
 
 const services = [
   { type: "mcp", icon: "mcp", label: "mcp" },
@@ -92,47 +86,25 @@ function ServiceMenu(props: ServiceMenuProps) {
 
 function LspMenu(props: ServiceMenuProps) {
   const ctx = useExtension()
-  const data = () => props.session.server.data
-
-  const [load, { refetch }] = createResource(
-    () => props.shown && data(),
-    (current) => {
-      const directory = props.directory
-
-      current.location.config.invalidate({ directory })
-
-      return current.location.config.sync({ directory })
-    },
-  )
-
-  const names = createMemo(() => configuredLsps(data().location.config.list({ directory: props.directory }) ?? []))
-
-  createKeyed(data, (current) =>
-    onCleanup(
-      current.on("config.updated", (event) => {
-        if (event.location?.directory !== props.directory) return
-        void refetch()
-      }),
-    ),
-  )
+  const config = useConfig(source(props))
 
   return (
     <ServicePopover
       {...props}
-      loading={load.loading}
-      ready={data().location.config.list({ directory: props.directory }) !== undefined}
-      empty={names().length === 0}
-      error={load.error}
-      retry={refetch}
+      loading={config.loading()}
+      ready={config.ready()}
+      empty={config.lsps().length === 0}
+      error={config.error()}
+      retry={config.retry}
     >
       <Show
-        when={names().length}
+        when={config.lsps().length}
         fallback={
           <ServiceEmpty session={props.session} title={ctx.t("lsp.empty")} directory={props.directory} service="lsp" />
         }
       >
         <h3 class="session-service-title">{ctx.t("lsp.configured")}</h3>
-        <For each={names()}>
+        <For each={config.lsps()}>
           {(name) => (
             <div class="session-service-row">
               <span dir="auto" class="session-summary-label">
@@ -151,118 +123,41 @@ function LspMenu(props: ServiceMenuProps) {
 
 function McpMenu(props: ServiceMenuProps) {
   const ctx = useExtension()
-  const data = () => props.session.server.data
-
   const toggle = useMcpToggle(props.session, () => props.directory)
-
-  const [load, { refetch }] = createResource(
-    () => props.shown && data(),
-    async (current) => {
-      const directory = props.directory
-
-      current.location.mcp.server.invalidate({ directory })
-      await current.location.mcp.server.sync({ directory })
-    },
-  )
-
-  const servers = createMemo(() =>
-    (data().location.mcp.server.list({ directory: props.directory }) ?? []).toSorted((a, b) =>
-      a.name.localeCompare(b.name),
-    ),
-  )
-
-  const showError = (name: string) =>
-    ctx.dialogs.open((dialog) => (
-      <McpErrorDialog session={props.session} directory={props.directory} name={name} onClose={dialog.close} />
-    ))
+  const servers = useMcpServers(source(props))
 
   return (
     <ServicePopover
       {...props}
-      loading={load.loading}
-      ready={data().location.mcp.server.list({ directory: props.directory }) !== undefined}
-      empty={servers().length === 0}
-      error={load.error}
-      retry={refetch}
+      loading={servers.loading()}
+      ready={servers.ready()}
+      empty={servers.list().length === 0}
+      error={servers.error()}
+      retry={servers.retry}
     >
       <Show
-        when={servers().length}
+        when={servers.list().length}
         fallback={
           <ServiceEmpty session={props.session} title={ctx.t("mcp.empty")} directory={props.directory} service="mcp" />
         }
       >
         <h3 class="session-service-title">{ctx.t("mcp.title")}</h3>
-        <Index each={servers()}>
+        <Index each={servers.list()}>
           {(server) => {
-            const enabled = () => server().status.status !== "disabled"
-            const pending = () => toggle.isPending || server().status.status === "pending"
-            // Status stays beside its control rather than competing with a long server name.
-            const failed = () => server().status.status === "failed"
-            const signIn = () => server().status.status === "needs_auth" && !!server().integrationID
-            const busy = () => toggle.isPending && toggle.variables?.name === server().name
-
-            const label = () => {
-              const status = server().status.status
-
-              if (status === "pending") return ctx.t("connecting")
-
-              if (status === "needs_auth") return ctx.t("needsAuth")
-
-              return ctx.t(status === "connected" ? "mcp.connected" : "mcp.disabled")
-            }
-
-            const change = (value: boolean) => {
-              if (pending()) return
-              toggle.mutate({ name: server().name, enabled: value })
-            }
-
-            const follow = () => {
-              if (failed()) return showError(server().name)
-              change(server().status.status === "needs_auth" || !enabled())
-            }
+            const row = useMcpRow({ session: props.session, directory: props.directory, server, toggle })
 
             return (
-              <div class="session-mcp-row" data-disabled={pending() || undefined} onClick={follow}>
+              <div class="session-mcp-row" data-disabled={row.pending() || undefined} onClick={row.follow}>
                 <span class="session-mcp-name">
                   <span class="session-service-dot" data-status={server().status.status} aria-hidden="true" />
                   <TruncatedText text={server().name} class="session-summary-label" />
                 </span>
+                {/* Status stays beside its control rather than competing with a long server name. */}
                 <span class="session-mcp-trailing" onClick={(event) => event.stopPropagation()}>
-                  <Show
-                    when={failed() || signIn()}
-                    fallback={
-                      <Switch
-                        checked={enabled()}
-                        readOnly={pending()}
-                        aria-disabled={pending()}
-                        aria-busy={busy()}
-                        description={server().status.status === "pending" ? label() : undefined}
-                        class="[&_[data-slot=switch-description]]:sr-only"
-                        onChange={change}
-                      >
-                        <span class="sr-only">{server().name}</span>
-                        <span aria-hidden="true">{label()}</span>
-                      </Switch>
-                    }
-                  >
-                    <Show when={failed()}>
-                      <span class="session-mcp-failed">{ctx.t("failed")}</span>
-                    </Show>
-                    <Button
-                      size="small"
-                      variant="neutral"
-                      disabled={signIn() && pending()}
-                      aria-busy={busy()}
-                      aria-label={ctx.t(failed() ? "mcp.error.actionLabel" : "mcp.signIn.open", {
-                        name: server().name,
-                      })}
-                      onClick={follow}
-                    >
-                      <Show when={failed()} fallback={ctx.t(busy() ? "mcp.signingIn" : "mcp.signIn")}>
-                        {ctx.t("mcp.error.action")}
-                      </Show>
-                    </Button>
+                  <Show when={row.failed()}>
+                    <span class="session-mcp-failed">{ctx.t("failed")}</span>
                   </Show>
+                  <McpServerControl server={server()} row={row} />
                 </span>
               </div>
             )
@@ -289,73 +184,19 @@ function McpMenu(props: ServiceMenuProps) {
 
 function ServiceCatalog(props: ServiceMenuProps) {
   const ctx = useExtension()
-  const data = () => props.session.server.data
-
-  const [items, { refetch }] = createResource(
-    () => props.shown && data(),
-    async (current) => {
-      const directory = props.directory
-
-      if (props.service.type === "plugins") {
-        const result = await props.session.server.client.plugin.list({ location: { directory } })
-
-        return result.data
-          .filter((plugin) => plugin.source.type !== "builtin")
-          .map((plugin) => ({
-            name: pluginLabel(plugin),
-            status: plugin.state.status,
-            error: plugin.state.status === "failed" ? plugin.state.error : undefined,
-          }))
-      }
-
-      current.location.skill.invalidate({ directory })
-      await current.location.skill.sync({ directory })
-
-      return undefined
-    },
-  )
-
-  const loaded = () => items.state === "ready" || items.state === "refreshing"
-
-  const list = createMemo(() => {
-    const entries =
-      props.service.type === "plugins"
-        ? loaded()
-          ? (items.latest ?? [])
-          : []
-        : (data().location.skill.list({ directory: props.directory }) ?? []).map((skill) => ({
-            name: skill.name,
-            status: "active",
-            error: undefined,
-          }))
-
-    return entries.toSorted((a, b) => a.name.localeCompare(b.name))
-  })
-
-  createKeyed(data, (current) =>
-    onCleanup(
-      current.on(props.service.type === "plugins" ? "plugin.updated" : "skill.updated", (event) => {
-        if (event.location?.directory !== props.directory) return
-        void refetch()
-      }),
-    ),
-  )
+  const catalog = props.service.type === "plugins" ? usePlugins(source(props)) : useSkills(source(props))
 
   return (
     <ServicePopover
       {...props}
-      loading={items.loading}
-      ready={
-        props.service.type === "plugins"
-          ? loaded()
-          : data().location.skill.list({ directory: props.directory }) !== undefined
-      }
-      empty={list().length === 0}
-      error={items.error}
-      retry={refetch}
+      loading={catalog.loading()}
+      ready={catalog.ready()}
+      empty={catalog.list().length === 0}
+      error={catalog.error()}
+      retry={catalog.retry}
     >
       <Show
-        when={list().length}
+        when={catalog.list().length}
         fallback={
           <ServiceEmpty
             session={props.session}
@@ -368,7 +209,7 @@ function ServiceCatalog(props: ServiceMenuProps) {
         <h3 class="session-service-title">
           {ctx.t(props.service.type === "plugins" ? "plugins.configured" : "skills.configured")}
         </h3>
-        <For each={list()}>
+        <For each={catalog.list()}>
           {(item) => (
             <div class="session-service-row" title={item.error ?? item.name}>
               <span class="session-service-dot" data-status={item.status} aria-hidden="true" />
@@ -387,6 +228,10 @@ function ServiceCatalog(props: ServiceMenuProps) {
       </Show>
     </ServicePopover>
   )
+}
+
+function source(props: ServiceMenuProps) {
+  return { session: () => props.session, directory: () => props.directory, shown: () => props.shown }
 }
 
 type ServiceBodyProps = {
@@ -617,152 +462,5 @@ function ServiceEmpty(props: { session: MountedSession; title: string; directory
         <ServiceConfigLink session={props.session} directory={props.directory} service={props.service} />
       </div>
     </div>
-  )
-}
-
-function pluginLabel(plugin: PluginInfo) {
-  if (plugin.id) return plugin.id
-
-  if (plugin.source.type === "package") return plugin.source.target
-
-  if (plugin.source.type === "local") return plugin.source.path
-
-  return plugin.source.type
-}
-
-// Connects, disconnects, or starts sign-in for one of the session server's MCPs, like the app's MCP toggle.
-function useMcpToggle(session: MountedSession, directory: () => string) {
-  const ctx = useExtension()
-  const system = ctx.system
-  const data = () => session.server.data
-
-  return useMutation(() => ({
-    mutationFn: async (input: { name: string; enabled: boolean }) => {
-      const client = session.server.client
-      const source = data()
-      const ref = { directory: directory() }
-      const server = (await client.mcp.list({ location: ref })).data.find((item) => item.name === input.name)
-
-      if (!server) return
-
-      if (!input.enabled) {
-        await client.mcp.disconnect({ server: input.name, location: ref })
-      }
-
-      if (input.enabled && server.status.status !== "needs_auth") {
-        await client.mcp.connect({ server: input.name, location: ref })
-      }
-
-      source.location.mcp.server.invalidate(ref)
-      await source.location.mcp.server.sync(ref)
-      const current = source.location.mcp.server.list(ref)?.find((item) => item.name === input.name)
-
-      if (input.enabled && current?.status.status === "needs_auth" && current.integrationID) {
-        const integration = await client.integration.get({ integrationID: current.integrationID, location: ref })
-        const method = integration.data?.methods.find((item) => item.type === "oauth" && !item.form?.length)
-
-        if (!method || method.type !== "oauth") throw new Error(ctx.t("mcp.interactiveAuth", { name: input.name }))
-
-        const attempt = await client.integration.oauth.connect({
-          integrationID: current.integrationID,
-          methodID: method.id,
-          location: ref,
-        })
-
-        system.openExternal(attempt.data.url)
-      }
-
-      source.location.mcp.resource.invalidate(ref)
-      await source.location.mcp.resource.sync(ref)
-      // A successful HTTP response can still leave the MCP connection in a failed state.
-      const status = current?.status
-
-      if (status?.status === "failed") throw new Error(`${input.name}: ${status.error}`)
-    },
-    onError: (error) =>
-      showToast({
-        variant: "error",
-        title: ctx.t("common.requestFailed"),
-        description: error instanceof Error ? error.message : String(error),
-      }),
-  }))
-}
-
-// The MCPs dialog's error view, for a server the popover lists. It reads the server's own data, so it outlives the
-// popover that opened it.
-function McpErrorDialog(props: { session: MountedSession; directory: string; name: string; onClose: () => void }) {
-  const ctx = useExtension()
-  const toggle = useMcpToggle(props.session, () => props.directory)
-  const [copied, setCopied] = createSignal(false)
-
-  const failure = () => {
-    const server = props.session.server.data.location.mcp.server
-      .list({ directory: props.directory })
-      ?.find((item) => item.name === props.name)
-
-    return server?.status.status === "failed" ? { name: server.name, error: server.status.error } : undefined
-  }
-
-  // A successful retry, disabling, or a removed server leaves nothing to show.
-  createKeyed(
-    () => !!failure(),
-    () => undefined,
-    { otherwise: props.onClose },
-  )
-
-  return (
-    <Show when={failure()}>
-      {(current) => (
-        <Dialog class="session-mcp-error">
-          <DialogHeader>
-            <DialogTitleGroup
-              title={
-                <span dir="auto" class="[overflow-wrap:anywhere]">
-                  {current().name}
-                </span>
-              }
-              description={ctx.t("mcp.error.status")}
-            />
-          </DialogHeader>
-          <DialogBody class="session-mcp-error-body">
-            <ErrorDetails error={current().error}>
-              <Button
-                class="error-details-copy"
-                variant="ghost-muted"
-                icon={copied() ? "check" : "copy"}
-                onClick={() =>
-                  void ctx.system
-                    .copy(ctx.t("mcp.error.details", { name: current().name, error: current().error }))
-                    .then(() => setCopied(true))
-                    .catch((error) =>
-                      showToast({
-                        variant: "error",
-                        title: ctx.t("mcp.error.copyFailed"),
-                        description: error instanceof Error ? error.message : String(error),
-                      }),
-                    )
-                }
-              >
-                {ctx.t(copied() ? "common.copied" : "mcp.error.copy")}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={toggle.isPending}
-                onClick={() => toggle.mutate({ name: props.name, enabled: false })}
-              >
-                {ctx.t("mcp.error.disable")}
-              </Button>
-              <Button
-                variant="neutral"
-                disabled={toggle.isPending}
-                onClick={() => toggle.mutate({ name: props.name, enabled: true })}
-              >
-                {ctx.t("common.retry")}
-              </Button>
-            </ErrorDetails>
-          </DialogBody>
-        </Dialog>
-      )}
-    </Show>
   )
 }
