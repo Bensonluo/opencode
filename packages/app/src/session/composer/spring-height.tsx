@@ -1,5 +1,22 @@
-import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack, type Accessor, type JSX } from "solid-js"
-import { frameLoop, observeReducedMotion, prefersReducedMotion, Spring, type DurationOptions } from "@opencode/ui/motion"
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  Show,
+  untrack,
+  type Accessor,
+  type JSX,
+} from "solid-js"
+import {
+  frameLoop,
+  observeReducedMotion,
+  prefersReducedMotion,
+  Spring,
+  type DurationOptions,
+} from "@opencode/ui/motion"
 
 const enter: DurationOptions = { duration: 0.4, bounce: 0 }
 const exit: DurationOptions = { duration: 0.3, bounce: 0 }
@@ -171,6 +188,8 @@ export function Grow<T>(props: {
   fade?: boolean
   card?: boolean
   class?: string
+  /** The spring it closes on, when it closes alongside other motion that should share it. */
+  close?: () => DurationOptions
   onClosed?: () => void
   children: JSX.Element | ((item: NonNullable<T>) => JSX.Element)
 }) {
@@ -189,7 +208,7 @@ export function Grow<T>(props: {
         }
         if (!el || (!entering && (!prev || prev[0] === when))) return
         entering = false
-        grow(el, when, props.fade, props.card, () => {
+        grow(el, when, props.fade, props.card, props.close?.(), () => {
           setPresent(false)
           props.onClosed?.()
         })
@@ -206,7 +225,13 @@ export function Grow<T>(props: {
       >
         {(() => {
           const child = props.children
-          return typeof child === "function" ? <Show when={item()} keyed>{child}</Show> : child
+          return typeof child === "function" ? (
+            <Show when={item()} keyed>
+              {child}
+            </Show>
+          ) : (
+            child
+          )
         })()}
       </div>
     </Show>
@@ -215,13 +240,13 @@ export function Grow<T>(props: {
 
 const growing = new WeakMap<HTMLElement, { spring: Spring; open: boolean; done?: () => void }>()
 
-function grow(el: HTMLElement, open: boolean, withFade?: boolean, card?: boolean, done?: () => void) {
+function grow(el: HTMLElement, open: boolean, withFade?: boolean, card?: boolean, close = exit, done?: () => void) {
   const reduced = prefersReducedMotion()
   const current = growing.get(el)
   if (current) {
     current.open = open
     current.done = done
-    tune(current.spring, reduced ? fade : open ? enter : exit)
+    tune(current.spring, reduced ? fade : open ? enter : close)
     return
   }
 
@@ -229,7 +254,7 @@ function grow(el: HTMLElement, open: boolean, withFade?: boolean, card?: boolean
   const prevMb =
     (!mb && el.previousElementSibling ? parseFloat(getComputedStyle(el.previousElementSibling).marginBottom) : 0) || 0
   const state = {
-    spring: Spring.fromDuration(open ? 0 : el.getBoundingClientRect().height, reduced ? fade : open ? enter : exit),
+    spring: Spring.fromDuration(open ? 0 : el.getBoundingClientRect().height, reduced ? fade : open ? enter : close),
     open,
     done,
   }
@@ -288,11 +313,18 @@ function finish(el: HTMLElement, open: boolean, done?: () => void) {
   const child = el.firstElementChild instanceof HTMLElement ? el.firstElementChild : undefined
   el.removeAttribute("data-moving")
   el.removeAttribute("data-dock-border-underlay")
-  ;["height", "margin-top", "margin-bottom", "overflow-clip-margin", "opacity", "filter", "transform", "mask-image"].forEach(
-    (prop) => {
-      el.style.removeProperty(prop)
-      child?.style.removeProperty(prop)
-    },
-  )
+  ;[
+    "height",
+    "margin-top",
+    "margin-bottom",
+    "overflow-clip-margin",
+    "opacity",
+    "filter",
+    "transform",
+    "mask-image",
+  ].forEach((prop) => {
+    el.style.removeProperty(prop)
+    child?.style.removeProperty(prop)
+  })
   if (!open) done?.()
 }

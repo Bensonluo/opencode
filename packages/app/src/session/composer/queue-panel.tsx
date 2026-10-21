@@ -12,6 +12,7 @@ import { Spinner } from "@opencode/ui/spinner"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import type { SessionQueueView } from "./queue"
+import { growthSpring } from "@/session/timeline/row-growth"
 import { prepareSendFlight } from "@/session/timeline/send-flight"
 import { Grow } from "./spring-height"
 import "./queue-panel.css"
@@ -107,6 +108,7 @@ export function SessionQueuePanel(props: { queue: SessionQueueView; hidden?: boo
                   when={!open() || live().includes(id)}
                   appear={appearing.delete(id)}
                   fade
+                  close={growthSpring}
                   onClosed={() => setShown((rows) => rows.filter((row) => row.id !== id))}
                 >
                   <SessionQueueRow queue={props.queue} id={id} index={live().indexOf(id)} />
