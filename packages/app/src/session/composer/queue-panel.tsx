@@ -12,7 +12,6 @@ import { Spinner } from "@opencode/ui/spinner"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import type { SessionQueueView } from "./queue"
-import { SpringHeight } from "./spring-height"
 import "./queue-panel.css"
 
 // Pullout above the composer listing the prompts queued behind the current
@@ -20,22 +19,14 @@ import "./queue-panel.css"
 // composer background) so the two read as one attached surface.
 export function SessionQueuePanel(props: { queue: SessionQueueView }) {
   const language = useLanguage()
-
-  // The last prompts stay drawn while the emptied panel closes over them.
-  const rows = createMemo<ReturnType<SessionQueueView["rows"]>>(
-    (last) => (props.queue.rows().length > 0 ? props.queue.rows() : last),
-    [],
-  )
-
-  const count = () => rows().length
+  const count = () => props.queue.rows().length
   let listRef!: HTMLDivElement
 
   return (
-    <SpringHeight when={props.queue.rows().length > 0} class="relative z-0">
+    <Show when={count() > 0}>
       <div
         data-component="session-queue-panel"
-        inert={props.queue.rows().length === 0}
-        class="-mb-3 rounded-xl bg-v2-background-bg-base px-1.5 pt-1.5 shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)]"
+        class="relative z-0 -mb-3 rounded-xl bg-v2-background-bg-base px-1.5 pt-1.5 shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)]"
         // Match the composer overlap so the scroll crop meets the input edge.
         classList={{ "pb-3": count() > 4, "pb-[18px]": count() <= 4 }}
       >
@@ -65,7 +56,7 @@ export function SessionQueuePanel(props: { queue: SessionQueueView }) {
             if (source.initialIndex === source.index) return
             void props.queue.reorder(
               arrayMove(
-                rows().map((row) => row.id),
+                props.queue.rows().map((row) => row.id),
                 source.initialIndex,
                 source.index,
               ),
@@ -87,26 +78,19 @@ export function SessionQueuePanel(props: { queue: SessionQueueView }) {
                   : undefined,
             }}
           >
-            <For each={rows().map((row) => row.id)}>
+            <For each={props.queue.rows().map((row) => row.id)}>
               {(id, index) => <SessionQueueRow queue={props.queue} id={id} index={index()} />}
             </For>
           </div>
         </DragDropProvider>
       </div>
-    </SpringHeight>
+    </Show>
   )
 }
 
 function SessionQueueRow(props: { queue: SessionQueueView; id: string; index: number }) {
   const language = useLanguage()
-
-  const row = createMemo(
-    (last?: ReturnType<SessionQueueView["rows"]>[number]) =>
-      props.queue.rows().find((entry) => entry.id === props.id) ?? last,
-    undefined,
-    { equals: (a, b) => a?.text === b?.text && a?.attachments === b?.attachments },
-  )
-
+  const row = createMemo(() => props.queue.rows().find((entry) => entry.id === props.id))
   const editing = () => props.queue.editing() === props.id
   // While the turn is stopped the queue stays parked, so the first prompt
   // shows its actions without hover and its label reads Send: that is how a
