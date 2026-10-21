@@ -13,7 +13,8 @@ import { ExtensionServerCover } from "@/runtime/extension/server-shell"
 import { ExtensionSlot } from "@/runtime/extension/render"
 import { useCommand } from "@/shell/commands/command"
 import { useLanguage } from "@/runtime/i18n/language"
-import { CollapsedSidebarToggle } from "@/shell/sidebar-toggle"
+import { CollapsedSidebarToggle, paintCollapsedSlots } from "@/shell/sidebar-toggle"
+import { createPanelMotion, guardClosingFocus, replayPanelToggle } from "@/shell/panel-motion"
 
 export default function Layout(props: ParentProps) {
   const platform = usePlatform()
@@ -26,12 +27,39 @@ export default function Layout(props: ParentProps) {
   const [state, setState] = createStore<{
     tabsWidth: number
     tabsMount: HTMLElement | undefined
+    tabsAside: HTMLElement | undefined
   }>({
     tabsWidth: 260,
     tabsMount: undefined,
+    tabsAside: undefined,
   })
 
   const verticalTabs = () => preferences.appearance.tabLayout() !== "horizontal" && !mobile()
+
+  const toggleSidebar = () => preferences.appearance.setSidebarOpen(!preferences.appearance.sidebarOpen())
+
+  const sidebarMotion = createPanelMotion({
+    open: preferences.appearance.sidebarOpen,
+    // The aside's real width moves main's edge with the sidebar's; its contents keep their width, pinned to that edge.
+    paint: (closed) => {
+      const aside = state.tabsAside
+
+      if (aside) aside.style.width = `${state.tabsWidth * (1 - closed)}px`
+      paintCollapsedSlots(closed)
+    },
+  })
+
+  replayPanelToggle({ id: "sidebar", label: "Toggle the left sidebar", toggle: toggleSidebar })
+
+  guardClosingFocus({
+    root: () => state.tabsAside,
+    closing: () => !preferences.appearance.sidebarOpen() && sidebarMotion.present(),
+    // The toggle that reopens the sidebar, outside it.
+    target: () =>
+      [...document.querySelectorAll<HTMLElement>('button[aria-controls="vertical-tabs-sidebar"]')].find(
+        (button) => !state.tabsAside?.contains(button),
+      ),
+  })
 
   command.register("sidebar", () =>
     verticalTabs()
@@ -41,7 +69,7 @@ export default function Layout(props: ParentProps) {
             title: language.t("command.sidebar.toggle"),
             category: language.t("command.category.view"),
             keybind: "mod+shift+b",
-            onSelect: () => preferences.appearance.setSidebarOpen(!preferences.appearance.sidebarOpen()),
+            onSelect: toggleSidebar,
           },
         ]
       : [],
@@ -74,13 +102,14 @@ export default function Layout(props: ParentProps) {
               id="vertical-tabs-sidebar"
               data-slot="vertical-tabs-sidebar"
               data-state={preferences.appearance.sidebarOpen() ? "open" : "closed"}
+              ref={(element) => setState("tabsAside", element)}
               class="relative z-10 h-full min-h-0 shrink-0"
-              style={{ width: preferences.appearance.sidebarOpen() ? `${state.tabsWidth}px` : "0px" }}
-              inert={!preferences.appearance.sidebarOpen()}
             >
+              {/* Skipped rather than display: none or inert, so neither direction restyles the sidebar's contents and
+                  a reopen reuses their layout. */}
               <div
-                class="absolute inset-0 overflow-hidden"
-                classList={{ invisible: !preferences.appearance.sidebarOpen() }}
+                class="absolute inset-0 overflow-hidden [contain:layout_style_paint]"
+                classList={{ "[content-visibility:hidden]": !sidebarMotion.present() }}
               >
                 <div
                   ref={(element) => setState("tabsMount", element)}
@@ -91,6 +120,11 @@ export default function Layout(props: ParentProps) {
                   }}
                 />
               </div>
+              {/* Takes the pointer while the sidebar closes, without restyling its contents. */}
+              <div
+                class="absolute inset-0 z-20"
+                classList={{ hidden: preferences.appearance.sidebarOpen() || !sidebarMotion.present() }}
+              />
               <Show when={preferences.appearance.sidebarOpen()}>
                 <ResizeHandle
                   class="-end-1"

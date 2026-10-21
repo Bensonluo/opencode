@@ -43,6 +43,8 @@ export type ComposerEditorView = {
   submit: {
     available?: Accessor<boolean>
     stopping: Accessor<boolean>
+    /** A send pressed while agents and models load, which goes through once they do. */
+    held?: Accessor<boolean>
     working?: Accessor<boolean>
     queue?: ComposerQueue
     onSubmit: (options?: { alternate?: boolean }) => void
@@ -64,8 +66,11 @@ export function createComposerEditor(input: {
   history?: ComposerHistory
   commands: Accessor<ComposerSuggestion[]>
   context: Accessor<ComposerSuggestion[]>
-  searchContextFiles: (query: string) => ComposerSuggestion[] | Promise<ComposerSuggestion[]>
-  searchSessions?: (query: string) => Promise<ComposerSuggestion[]>
+  searchContextFiles: (query: string, signal?: AbortSignal) => ComposerSuggestion[] | Promise<ComposerSuggestion[]>
+  /** Reads reactively, so newly found sessions refresh the list without waiting on file search. */
+  searchSessions?: (query: string) => ComposerSuggestion[]
+  /** Whether the session search for this query has yet to settle; reads reactively. */
+  sessionsPending?: (query: string) => boolean
   openAttachment?: (attachment: ComposerAttachment, origin?: HTMLElement) => void
   /** An object URL for the image file at this path, which a path attachment references without its bytes. */
   readImage?: (path: string) => Promise<string | undefined>
@@ -155,19 +160,58 @@ export function createComposerEditor(input: {
     )
   }
 
+  const [found, setFound] = createStore<{ query: string; files: ComposerSuggestion[] }>({ query: "", files: [] })
+  let fileQuery: string | undefined
+  let fileAbort = new AbortController()
+  onCleanup(() => fileAbort.abort())
+
+  // Debounced and abortable: each keystroke or close replaces the pending file search instead of queueing behind it.
+  const findFiles = (query?: string) => {
+    if (query === fileQuery) return
+    fileAbort.abort()
+    const abort = new AbortController()
+    fileQuery = query
+    fileAbort = abort
+
+    if (query === undefined) return
+
+    if (!query.trim() || /\s/.test(query)) return
+
+    const timer = setTimeout(
+      () =>
+        void Promise.resolve(input.searchContextFiles(query, abort.signal)).then(
+          (files) => !abort.signal.aborted && setFound({ query, files }),
+          () => undefined,
+        ),
+      150,
+    )
+
+    abort.signal.addEventListener("abort", () => clearTimeout(timer), { once: true })
+  }
+
   const contextList = useFilteredList<ComposerSuggestion>({
-    items: async (query) => {
+    items: (query) => {
+      if (state.popover.type !== "context") {
+        findFiles(undefined)
+
+        return []
+      }
+
+      findFiles(query)
+
+      const sessions = input.searchSessions?.(query) ?? []
+
+      // Only session titles contain spaces; fuzzy matches elsewhere would keep the popover over prose.
+      if (/\s/.test(query)) return sessions
+
       const fixed = input.context().filter((item) => item.kind !== "file")
       const recent = input.context().filter((item) => item.kind === "file" && item.recent)
 
       const seen = new Set(recent.map((item) => item.id))
 
-      const [sessions, files] = await Promise.all([
-        input.searchSessions?.(query) ?? [],
-        query.trim() ? input.searchContextFiles(query) : [],
-      ])
+      const files = found.query === query ? found.files : []
 
-      return [...sessions, ...fixed, ...recent, ...files.filter((item) => !seen.has(item.id))]
+      return [...fixed, ...sessions, ...recent, ...files.filter((item) => !seen.has(item.id))]
     },
     key: (item) => item.id,
     filterKeys: ["label"],
@@ -188,7 +232,7 @@ export function createComposerEditor(input: {
       return "file"
     },
     sortGroupsBy: (a, b) => {
-      const order = ["session", "reference", "skill", "agent", "resource", "recent", "file"]
+      const order = ["reference", "agent", "session", "skill", "resource", "recent", "file"]
 
       return order.indexOf(a.category) - order.indexOf(b.category)
     },
@@ -388,7 +432,7 @@ export function createComposerEditor(input: {
     }
 
     const stop =
-      input.view.submit.working?.() &&
+      (input.view.submit.working?.() || input.view.submit.held?.()) &&
       ((event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "g") ||
         event.key === "Escape")
 
@@ -423,6 +467,15 @@ export function createComposerEditor(input: {
 
     if (state.popover.activeID ? ids.includes(state.popover.activeID) : ids.length === 0) return
     dispatch({ type: "popover.results", ids })
+  })
+
+  // A space ends the mention once nothing matches, so `@` can still start ordinary prose.
+  createEffect(() => {
+    if (state.popover.type !== "context" || !/\s/.test(state.popover.query)) return
+
+    if (input.sessionsPending?.(state.popover.query)) return
+
+    if (contextList.grouped.state === "ready" && contextList.flat().length === 0) dispatch({ type: "popover.close" })
   })
 
   const restoreFocus = (cursor = draft.state.cursor ?? promptLength(draft.state.prompt)) => {

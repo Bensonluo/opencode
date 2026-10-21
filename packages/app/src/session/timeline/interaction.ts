@@ -411,7 +411,8 @@ export function createSessionTimelineInteraction(session: SessionModel) {
     // dropping the subpixel updates at the tail of the composer's spring.
     const observer = new ResizeObserver(([entry]) => {
       // The activity pill floats above the region out of flow, so only the docks, queue and composer count here.
-      const next = Math.round((entry.borderBoxSize[0]?.blockSize ?? 0) * 64) / 64
+      const dpr = window.devicePixelRatio || 1
+      const next = Math.round((entry.borderBoxSize[0]?.blockSize ?? 0) * dpr) / dpr
 
       if (next === state.inset) return
       const delta = next - state.inset

@@ -9,14 +9,10 @@ const setup: Setup<typeof Debug> = (ctx) => {
   // builds, prod included, drop the import and never contain knobs.
   const motionTools = import.meta.env.DEV || import.meta.env.VITE_OPENCODE_CHANNEL === "beta"
   const Motion = motionTools ? lazy(() => import("./motion")) : undefined
-  const TypePanel = motionTools ? lazy(() => import("./type-panel")) : undefined
   const Demo = motionTools ? lazy(() => import("./demo")) : undefined
-
-  if (motionTools) void import("./type").then((type) => type.applyStored())
   const bar = ctx.stores.bar
   const visible = () => bar.value.visible
   const motion = () => bar.value.motion
-  const typing = () => bar.value.type
   const [demo, setDemo] = createSignal(false)
 
   // Routing a session on Drive's simulated model opens the bar with its Demo panel, so the controls are in view.
@@ -28,7 +24,9 @@ const setup: Setup<typeof Debug> = (ctx) => {
         return session?.location && simulated({ ...session, location: session.location }) ? session.key : undefined
       },
       () => {
-        void bar.update((draft) => { draft.visible = true })
+        void bar.update((draft) => {
+          draft.visible = true
+        })
         setDemo(true)
       },
     )
@@ -36,12 +34,6 @@ const setup: Setup<typeof Debug> = (ctx) => {
   const toggle = () => {
     bar.update((draft) => {
       draft.visible = !draft.visible
-    })
-  }
-
-  const toggleType = () => {
-    bar.update((draft) => {
-      draft.type = !draft.type
     })
   }
 
@@ -76,24 +68,16 @@ const setup: Setup<typeof Debug> = (ctx) => {
               diagnostics={import.meta.env.DEV}
               onClose={toggle}
               motion={Motion ? { open: motion(), toggle: toggleMotion } : undefined}
-              type={TypePanel ? { open: typing(), toggle: toggleType } : undefined}
               demo={Demo ? { open: demo(), toggle: toggleDemo } : undefined}
               inline
             />
           </Suspense>
         </Show>
         {Motion && (
-          // The Motion workspace opens only from the debug bar's MOTION cell, and shows while the bar does.
+          // The Knobs workspace opens only from the debug bar's KNOBS cell, and shows while the bar does.
           <Show when={visible() && motion()}>
             <Suspense>
-              <Motion title={ctx.t("motion.title")} />
-            </Suspense>
-          </Show>
-        )}
-        {TypePanel && (
-          <Show when={visible() && typing()}>
-            <Suspense>
-              <TypePanel title={ctx.t("type.title")} />
+              <Motion title={ctx.t("motion.title")} onClose={toggleMotion} />
             </Suspense>
           </Show>
         )}

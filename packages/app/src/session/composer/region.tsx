@@ -439,22 +439,26 @@ export function ActiveSessionComposerRegion(props: {
           )}
         </Show>
       }
+      above={
+        <Show when={!missing() && !props.session.data.isChild()}>
+          <SessionActivityChips subagents={subagents()} shells={shells()} onOpen={open} onStop={stop} />
+          <SessionQueuePanel queue={props.model.queue} hidden={props.model.region.state.blocked()} />
+        </Show>
+      }
       composer={
         <Show
           when={missing()}
           keyed
           fallback={
-            <div class="relative">
-              <SessionActivityChips subagents={subagents()} shells={shells()} onOpen={open} onStop={stop} />
-              <SessionQueuePanel queue={props.model.queue} />
-              <div class="relative z-10">
-                <Composer
-                  model={props.model.composer}
-                  borderUnderlay
-                  readOnly={props.model.queue.undoing()}
-                  suggestionBoundary={props.suggestionBoundary}
-                />
-              </div>
+            // The container for the composer's `cqw` caps: only the composer re-evaluates as a panel beside it
+            // animates the chat's width.
+            <div class="@container">
+              <Composer
+                model={props.model.composer}
+                borderUnderlay
+                readOnly={props.model.queue.undoing()}
+                suggestionBoundary={props.suggestionBoundary}
+              />
             </div>
           }
         >

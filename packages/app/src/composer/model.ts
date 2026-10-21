@@ -2,7 +2,7 @@ import { ImagePreview } from "@opencode/ui/image-preview"
 import { useDialog } from "@opencode/ui/context/dialog"
 import type { ReferenceInfo } from "@opencode/client/promise"
 import type { Links, MountedSession } from "@opencode/gui-extensions/sdk"
-import { createComponent, createEffect, createMemo, on, onCleanup } from "solid-js"
+import { createComponent, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
 import { Predicate } from "effect"
 import type { ComposerSuggestion } from "./types"
 import { createComposerEditor, createComposerEditorState, type ComposerEditorModel } from "./editor/interaction"
@@ -23,7 +23,8 @@ import { formatServerError } from "@/runtime/server/errors"
 import { Skill } from "@opencode/schema/skill"
 import { Session } from "@opencode/schema/session"
 import { parseSessionMention } from "@opencode/util/session-mention"
-import { createServerSessionEntries } from "@/shell/commands/palette"
+import { createKnownServerSessions, createServerSessionEntries } from "@/shell/commands/palette"
+import { matchesSessionTitle } from "./session-match"
 import type { ComposerAdapter, ComposerControls, ComposerQueue } from "./adapter"
 import { isAttachment } from "./prompt-parts"
 import { isCommentItem } from "./state"
@@ -202,8 +203,12 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
 
   const skills = createMemo(() => data.location.skill.list({ directory: sdk().directory }) ?? [])
 
+  let sessionSearch: string | undefined
+  const [sessionSearched, setSessionSearched] = createSignal<string>()
+
   const sessions = createServerSessionEntries({
     server: server.key,
+    known: createKnownServerSessions(server.ctx),
     projects: server.ctx.projects.list,
     load: async (search, signal) => {
       const page = await serverSDK.api.session.list({ parentID: null, search, limit: 50 }, { signal })
@@ -353,11 +358,28 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
     },
     commands,
     context,
-    searchSessions: async (query) => {
-      if (interaction[0].popover.type !== "context") return []
+    searchSessions: (query) => {
+      if (interaction[0].popover.type !== "context") {
+        // Closing aborts the search, so reopening on the same query must fetch again.
+        sessionSearch = undefined
 
-      return (await sessions(query))
-        .sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))
+        return []
+      }
+
+      // The server narrows by the first word; the title match then needs the whole query.
+      const search = firstWord(query)
+
+      if (search !== sessionSearch) {
+        sessionSearch = search
+        void sessions.search(search).then(
+          () => sessionSearch === search && setSessionSearched(search),
+          () => sessionSearch === search && setSessionSearched(search),
+        )
+      }
+
+      return sessions
+        .items(search)
+        .filter((entry) => !query || matchesSessionTitle(entry.title, query))
         .flatMap((entry): ComposerSuggestion[] => {
           if (adapter.kind === "active-session" && entry.sessionID === adapter.session().id) return []
           const mention = entry.sessionID && parseSessionMention(entry.sessionID)
@@ -380,9 +402,11 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
             },
           ]
         })
+        .slice(0, query ? 8 : 5)
     },
-    searchContextFiles: async (query) =>
-      (await files.searchFilesAndDirectories(query)).map((path) => ({
+    sessionsPending: (query) => sessionSearched() !== firstWord(query),
+    searchContextFiles: async (query, signal) =>
+      (await files.searchFilesAndDirectories(query, { signal })).map((path) => ({
         id: `file:${path}`,
         kind: "file",
         label: path,
@@ -501,6 +525,7 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
       submit: {
         available,
         stopping,
+        held: submission.held,
         working: adapter.working,
         queue: options?.queue,
         onSubmit: (submitOptions) => {
@@ -611,4 +636,8 @@ function openComment(
 
   if (item.commentOrigin === "review") return queueFocus()
   void Promise.resolve(files.load(item.path)).finally(() => queueFocus())
+}
+
+function firstWord(query: string) {
+  return query.toLowerCase().split(" ")[0] ?? ""
 }

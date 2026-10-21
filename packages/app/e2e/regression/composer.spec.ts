@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test"
 import { NO_PROVIDER, SERVER, T0, holdRoute, provider, sessionHref } from "../utils/app"
 import { mockWorkspace, openDraft, openSession } from "../utils/workspace"
-import type { MockServerConfig } from "../utils/mock-server"
+import { mockPluginsActivating, type MockServerConfig } from "../utils/mock-server"
 
 test.use({ permissions: ["clipboard-read", "clipboard-write"] })
 
@@ -36,6 +36,55 @@ test("mention a session by title, send its stable token, and open its own tab", 
   await expect(page).toHaveURL(new RegExp(`${target}$`))
   await expect(page.locator("[data-titlebar-tab-link]").filter({ hasText: "Review the plan" })).toHaveCount(1)
   await expect(page.locator('[data-titlebar-tab-slot][data-active="true"]')).toContainText("Auth middleware")
+})
+
+test("a bare @ lists sessions, and a multi-word title matches while file search is slow", async ({ page }) => {
+  const target = "ses_0123456789opencodeconsolex"
+  const prompts: Parameters<NonNullable<MockServerConfig["onPrompt"]>>[0]["body"][] = []
+
+  const view = await openSession(page, {
+    name: "SessionMentionSearch",
+    findFiles: () => [],
+    sessions: [
+      { id: "ses_mention_search_source", title: "Review the plan" },
+      { id: "ses_0123456789homesessionabcde", title: "HOME" },
+      { id: target, title: "OPENCODE CONSOLE" },
+    ],
+    seed: { tabs: ["ses_mention_search_source"] },
+    onPrompt: (input) => void prompts.push(input.body),
+  })
+
+  const suggestions = page.locator('[data-component="composer-suggestions"]')
+  const files = await holdRoute(page, (url) => url.pathname === "/api/fs/find")
+
+  await view.editor.pressSequentially("Compare with @")
+  await expect(suggestions.getByRole("button", { name: /HOME/ })).toBeVisible()
+  await expect(suggestions.getByRole("button", { name: /OPENCODE CONSOLE/ })).toBeVisible()
+
+  await view.editor.pressSequentially("open")
+  await files.arrived
+  await view.editor.pressSequentially(" con")
+  await expect(suggestions.getByRole("button", { name: /HOME/ })).toHaveCount(0)
+  await expect(suggestions.locator("[data-suggestion-id][data-active]")).toContainText("OPENCODE CONSOLE")
+  await view.editor.press("Enter")
+  await expect(view.editor.locator('[data-mention="session"]')).toHaveText("@OPENCODE CONSOLE")
+  files.release()
+
+  // Prose after a completed mention neither reopens the popover nor lets it take Enter.
+  await view.editor.pressSequentially("on code")
+  await expect(suggestions).toBeHidden()
+  await view.editor.press("Enter")
+  await expect.poll(() => prompts.length).toBe(1)
+  expect(prompts[0]?.text).toBe(`Compare with @session:${target} on code`)
+
+  // A space after a full title ends a typed mention, so the rest stays prose.
+  await view.editor.pressSequentially("@home")
+  await expect(suggestions.getByRole("button", { name: /HOME/ })).toBeVisible()
+  await view.editor.pressSequentially(" now")
+  await expect(suggestions).toBeHidden()
+  await view.editor.press("Enter")
+  await expect.poll(() => prompts.length).toBe(2)
+  expect(prompts[1]?.text).toBe("@home now")
 })
 
 test("a catalog refresh cannot replace an existing session's model", async ({ page }) => {
@@ -166,6 +215,51 @@ test("an existing session's model never shows a fallback while its agent loads",
   await agentLoaded
   await expect(control).toHaveText("OpenCode / Alpha")
   expect(await page.evaluate(() => [...(window.__chipTexts ?? [])])).toEqual(["OpenCode / Alpha"])
+})
+
+test("a send pressed while the Location's plugins activate waits, Esc cancels it, and it sends once catalogs load", async ({
+  page,
+}) => {
+  const sessionID = "ses_plugins_booting"
+  const prompts: Parameters<NonNullable<MockServerConfig["onPrompt"]>>[0]["body"][] = []
+  await mockWorkspace(page, {
+    name: "PluginsBooting",
+    sessions: [{ id: sessionID, agent: "build", model: { id: "alpha", providerID: "opencode" } }],
+    provider: provider({ id: "alpha", name: "Alpha" }),
+    onPrompt: (input) => void prompts.push(input.body),
+  })
+  // The server answers the catalogs once plugins activate, and the model list gives up first with a 503.
+  await mockPluginsActivating(page)
+  const held = await holdRoute(page, /\/api\/(agent|provider|model)(\?|$)/)
+  const toast = page.getByText("Select an agent and model")
+  const submit = page.locator('[data-action="composer-submit"]')
+
+  try {
+    await page.goto(sessionHref(sessionID))
+    const editor = page.locator('[data-component="composer-editor"]')
+    await expect(editor).toBeEditable()
+    await held.arrived
+    await editor.fill("ship it")
+    await editor.press("Enter")
+    await expect(submit).toHaveAttribute("aria-busy", "true")
+    // Esc cancels the held send and keeps the prompt for the next press.
+    await editor.press("Escape")
+    await expect(submit).not.toHaveAttribute("aria-busy", "true")
+    await expect(editor).toHaveText("ship it")
+    await editor.press("Enter")
+    await expect(submit).toHaveAttribute("aria-busy", "true")
+    await expect(toast).toHaveCount(0)
+    expect(prompts).toEqual([])
+
+    held.release()
+    await expect.poll(() => prompts.length).toBe(1)
+    expect(prompts[0]).toMatchObject({ text: "ship it" })
+    await expect(editor).toHaveText("")
+    await expect(submit).not.toHaveAttribute("aria-busy", "true")
+    await expect(toast).toHaveCount(0)
+  } finally {
+    held.release()
+  }
 })
 
 test("an opened session in another Location names its model from a loaded catalog before its agents load", async ({
@@ -321,6 +415,33 @@ test("keeps a 25000-line crash report editable in a new session", async ({ page 
   await page.keyboard.press("ControlOrMeta+Home")
   await page.keyboard.press("ControlOrMeta+End")
   await expectCaretVisible(input)
+})
+
+test("keeps a line added at the end of a scrolling prompt clear of the bottom fade", async ({ page }) => {
+  const { editor } = await openSession(page, { name: "ComposerFade" })
+  await editor.click()
+
+  for (const line of Array.from({ length: 12 }, (_, index) => `Line ${index + 1}`)) {
+    await page.keyboard.type(line)
+    await page.keyboard.press("Shift+Enter")
+  }
+  await page.keyboard.type("Last line")
+  await expect.poll(() => editor.innerText()).toMatch(/Line 12\nLast line$/)
+
+  // The mask fades the viewport's bottom --composer-fade-bottom pixels; the last line must end above them.
+  await expect
+    .poll(() =>
+      editor.evaluate((element) => {
+        const viewport = element.closest(".scroll-view__viewport")!
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        const line = Array.from(range.getClientRects()).reduce((last, rect) => (rect.bottom > last.bottom ? rect : last))
+        const fade = parseFloat(getComputedStyle(viewport).getPropertyValue("--composer-fade-bottom"))
+
+        return Math.max(0, Math.round(line.bottom - (viewport.getBoundingClientRect().bottom - fade)))
+      }),
+    )
+    .toBe(0)
 })
 
 test("a key-up never moves the caret back after later navigation", async ({ page }) => {

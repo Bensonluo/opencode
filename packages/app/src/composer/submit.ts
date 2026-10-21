@@ -1,6 +1,6 @@
 import { SessionMessage } from "@opencode/schema/session-message"
 import type { SessionMessageUser } from "@opencode/client/promise"
-import type { Accessor } from "solid-js"
+import { createEffect, createRoot, createSignal, getOwner, onCleanup, runWithOwner, type Accessor } from "solid-js"
 import type { PromptComment } from "./comment-note"
 import type { PromptHistoryComment } from "./history/entry"
 import { isCommentItem, type ContextItem, type ImageAttachmentPart, type Prompt } from "./state"
@@ -61,8 +61,13 @@ type ComposerSubmitInput = {
 }
 
 export function createComposerSubmit(input: ComposerSubmitInput) {
-  const submit = async (event: globalThis.Event, options?: { alternate?: boolean }) => {
+  const owner = getOwner()
+  const [held, setHeld] = createSignal(false)
+
+  const submit = async (event: globalThis.Event, options?: { alternate?: boolean }): Promise<void> => {
     event.preventDefault()
+
+    if (held()) return
 
     const prompt = clonePrompt(input.adapter.state.current())
     const text = submissionText(prompt)
@@ -107,6 +112,17 @@ export function createComposerSubmit(input: ComposerSubmitInput) {
     })
 
     const read = readSubmission(input, submission.prompt, submission.context, text, options?.alternate ?? false)
+
+    // A cold Location lists its agents and models only after its plugins activate, so hold the send until then.
+    if (read === "loading") {
+      setHeld(true)
+      const loaded = await whenLoaded(input, owner, held)
+      setHeld(false)
+
+      if (loaded) await submit(event, options)
+
+      return
+    }
 
     if (!read) {
       if (input.adapter.working() && input.adapter.kind === "active-session") void input.adapter.interrupt()
@@ -234,7 +250,13 @@ export function createComposerSubmit(input: ComposerSubmitInput) {
 
   return {
     submit,
-    stop: () => (input.adapter.kind === "active-session" ? input.adapter.interrupt() : Promise.resolve()),
+    held,
+    stop: () => {
+      // Stopping a held send cancels it and leaves the prompt in the composer.
+      if (held()) return Promise.resolve(void setHeld(false))
+
+      return input.adapter.kind === "active-session" ? input.adapter.interrupt() : Promise.resolve()
+    },
   }
 }
 
@@ -306,7 +328,7 @@ function readSubmission(
   context: ComposerSubmission["context"],
   text: string,
   alternate: boolean,
-): ComposerSubmission | undefined {
+): ComposerSubmission | "loading" | undefined {
   const mode = input.mode()
 
   if (mode === "shell" && !text.trim()) return
@@ -319,6 +341,7 @@ function readSubmission(
   const selection = currentSelection(input)
 
   if (!selection) {
+    if (input.adapter.controls().model.loading) return "loading"
     input.notify.missingSelection()
 
     return
@@ -346,6 +369,28 @@ function readSubmission(
     delivery: input.delivery?.(alternate) ?? "steer",
     genui: input.genui?.() === true,
   }
+}
+
+// Resolves false if the hold is stopped, the draft changes or the composer unmounts first, so the prompt stays in the
+// composer instead of sending.
+function whenLoaded(input: ComposerSubmitInput, owner: ReturnType<typeof getOwner>, held: Accessor<boolean>) {
+  const draft = JSON.stringify(input.adapter.state.current())
+
+  return new Promise<boolean>((resolve) =>
+    createRoot((dispose) => {
+      const settle = (loaded: boolean) => {
+        dispose()
+        resolve(loaded)
+      }
+
+      runWithOwner(owner, () => onCleanup(() => settle(false)))
+      createEffect(() => {
+        if (!held() || JSON.stringify(input.adapter.state.current()) !== draft) return settle(false)
+
+        if (!input.adapter.controls().model.loading) settle(true)
+      })
+    }),
+  )
 }
 
 function currentSelection(input: ComposerSubmitInput): ComposerSelection | undefined {
