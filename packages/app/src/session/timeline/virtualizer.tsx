@@ -86,7 +86,10 @@ type Input = {
   /** Height of the composer region floating over the timeline's bottom edge, where the timeline fades out. */
   bottomInset?: Accessor<number>
   setVisibleRef?: (element: HTMLDivElement | undefined) => void
-  onScheduleScrollState: (element: HTMLDivElement) => void
+  onScheduleScrollState: (
+    element: HTMLDivElement,
+    geometry?: { extent: number; viewport: number; offset: number },
+  ) => void
   onPin: () => void
   onUnpin: () => void
   onSelectionInteraction: (event: MouseEvent) => void
@@ -254,6 +257,10 @@ export function createTimelineVirtualizer(input: Input) {
   let coldPending = coldBottomMount
   // The whole-pixel offset last written, while a translate draws the fraction it dropped.
   let wholeTop: number | undefined
+  let deferredTop: number | undefined
+  let precommittedTop: number | undefined
+  let flushScrollFrame: (() => void) | undefined
+  let lastHeaderWidth: number | undefined
   // Sizes held back from rows still streaming, applied once their text completes.
   const shrinks = new Map<string, number>()
 
@@ -274,15 +281,19 @@ export function createTimelineVirtualizer(input: Input) {
     observeElementRect: (instance, callback) => {
       reportRect = (rect) => {
         // Rows rewrap at a new width: their heights mean something else, so growth lands.
-        if (Math.abs(rect.width - (instance.scrollRect?.width ?? 0)) >= 1) landGrowth()
+        const widthChanged = Math.abs(rect.width - (instance.scrollRect?.width ?? 0)) >= 1
+        if (widthChanged) landGrowth()
         const height = Math.max(0, rect.height - bottomInset())
         const root = listRoot()
         batch(() => {
           // The container-responsive header can be 48px or 80px; the composer covers the viewport's bottom edge.
-          setViewport(
-            "headerHeight",
-            root ? parseFloat(getComputedStyle(root).getPropertyValue("--session-header-height")) || 48 : 48,
-          )
+          if (root && (widthChanged || lastHeaderWidth !== rect.width)) {
+            lastHeaderWidth = rect.width
+            setViewport(
+              "headerHeight",
+              parseFloat(getComputedStyle(root).getPropertyValue("--session-header-height")) || 48,
+            )
+          }
           setViewport("height", height)
           callback({ width: rect.width, height })
         })
@@ -465,6 +476,7 @@ export function createTimelineVirtualizer(input: Input) {
 
   // Each frame's displayed heights go in without TanStack's per-row scroll adjustment, then one write keeps the end
   // in place for the whole frame, so the rows above glide.
+  let resizingGrowth = false
   const growth = createRowGrowth({
     measure: () => {
       growthViewport = layoutState.viewport
@@ -473,9 +485,14 @@ export function createTimelineVirtualizer(input: Input) {
       const index = rowKeys().lastIndexOf(key)
 
       if (index < 0) return false
+      resizingGrowth = true
       virtualizer.options.anchorTo = "start"
-      resizeItem(index, size)
-      virtualizer.options.anchorTo = input.pinned() ? "end" : "start"
+      try {
+        resizeItem(index, size)
+      } finally {
+        resizingGrowth = false
+        virtualizer.options.anchorTo = input.pinned() ? "end" : "start"
+      }
 
       return virtualizer.elementsCache.get(key)?.parentElement ?? undefined
     },
@@ -509,38 +526,107 @@ export function createTimelineVirtualizer(input: Input) {
 
     holdSpace(grid(lift + held))
 
-    if (root && input.pinned()) pinEnd(growthViewport)
+    if (root && input.pinned()) pinEnd(growthViewport, true)
   }
 
-  function pinEnd(viewport?: number) {
+  function contentHeight() {
+    const base = virtualizer.getTotalSize() - rendering.scrollAdjustment
+    if (deferredTop === undefined || wholeTop === undefined || deferredTop >= wholeTop) return base
+    return Math.max(base, wholeTop + layoutState.viewport - topOffset() - bottomInset() - heldSpace)
+  }
+
+  function flushDeferredScroll() {
+    flushScrollFrame?.()
+    flushScrollFrame = undefined
+    if (deferredTop === undefined) return
+    const target = deferredTop
+    deferredTop = undefined
+    const root = listRoot()
+    if (root) writeScroll(root, target, false)
+  }
+
+  function pinEnd(viewport?: number, defer = !coldPending) {
     const root = listRoot()
 
     if (!root) return
     writeScroll(
       root,
       topOffset() + virtualizer.getTotalSize() + bottomInset() + heldSpace - (viewport ?? layoutState.viewport),
+      defer,
     )
   }
 
   // Native scroll offsets snap to whole pixels. Each write takes the whole pixel below and draws the rest as a
-  // translate, so row edges stay on the 1/64 px grid instead of trembling with the rounding.
-  function writeScroll(root: HTMLDivElement, offset: number) {
+  // translate, so row edges stay on the 1/64 px grid instead of trembling with the rounding. While rows are growing,
+  // the offset is drawn with the translate and committed to scrollTop once growth settles.
+  function writeScroll(root: HTMLDivElement, offset: number, defer = false) {
     const exact = Math.max(0, Math.min(offset, endOffset()))
+    if (defer) {
+      wholeTop ??= scrollTop
+      deferredTop = exact
+      const height = `${contentHeight()}px`
+      if (virtualContent && virtualContent.style.height !== height) virtualContent.style.height = height
+      const logicalTop = Math.floor(exact)
+      setLayoutState("offset", logicalTop)
+      if (logicalTop !== viewport.top || virtualizer.scrollOffset !== logicalTop) reportOffset?.(logicalTop, false)
+      if (!pointerHeld && performance.now() - userScrollAt > 250 && root.dataset.hoverStale === undefined)
+        root.dataset.hoverStale = ""
+      const remainder = wholeTop - exact
+      if (remainder === 0) virtualContent?.style.removeProperty("translate")
+      else virtualContent?.style.setProperty("translate", `0 ${remainder}px`)
+      input.onScheduleScrollState(root, scrollGeometry())
+      if (!growth.growing() && heldSpace === 0) {
+        flushScrollFrame ??= frameLoop.addMeasured(
+          () => {
+            const currentRoot = listRoot()
+            if (!currentRoot || deferredTop === undefined) return
+            const target = Math.max(0, Math.min(deferredTop, endOffset()))
+            const nextWhole = Math.floor(target)
+            const expectedHeight = `${virtualizer.getTotalSize() - rendering.scrollAdjustment}px`
+            if (!virtualContent || virtualContent.style.height === expectedHeight) {
+              if (wholeTop !== nextWhole) currentRoot.scrollTop = nextWhole
+              precommittedTop = nextWhole
+            }
+          },
+          () => {
+            flushScrollFrame = undefined
+            flushDeferredScroll()
+            return false
+          },
+        )
+      } else if (flushScrollFrame) {
+        flushScrollFrame()
+        flushScrollFrame = undefined
+      }
+      return
+    }
+    flushScrollFrame?.()
+    flushScrollFrame = undefined
+    deferredTop = undefined
     const previous = wholeTop
     wholeTop = Math.floor(exact)
+    scrollTop = wholeTop
+    const committed = precommittedTop === wholeTop
+    precommittedTop = undefined
     // Commit the extent before the offset, without asking layout to rediscover either value.
-    const height = `${virtualizer.getTotalSize() - rendering.scrollAdjustment}px`
+    const height = `${contentHeight()}px`
     const resized = virtualContent && virtualContent.style.height !== height
     if (resized && virtualContent) virtualContent.style.height = height
     // Rewriting scrollTop forces pending layout even when the logical offset did not move.
-    if (resized || previous !== wholeTop) root.scrollTop = wholeTop
+    if (resized || (!committed && previous !== wholeTop)) root.scrollTop = wholeTop
     setLayoutState("offset", wholeTop)
+    if (wholeTop !== viewport.top || virtualizer.scrollOffset !== wholeTop) reportOffset?.(wholeTop, false)
+    input.onScheduleScrollState(root, scrollGeometry())
 
     if (wholeTop === exact) return virtualContent?.style.removeProperty("translate")
     virtualContent?.style.setProperty("translate", `0 ${wholeTop - exact}px`)
   }
 
   function clearRemainder() {
+    flushScrollFrame?.()
+    flushScrollFrame = undefined
+    deferredTop = undefined
+    precommittedTop = undefined
     wholeTop = undefined
     virtualContent?.style.removeProperty("translate")
   }
@@ -568,6 +654,7 @@ export function createTimelineVirtualizer(input: Input) {
     holdSpace(0)
     endGap = false
     setShift({ rows: 0, size: 0 })
+    flushDeferredScroll()
   }
 
   const commitSize = (index: number, key: string, size: number) => {
@@ -698,7 +785,7 @@ export function createTimelineVirtualizer(input: Input) {
         : undefined,
     )
     queueMicrotask(() => {
-      if (input.pinned()) pinEnd()
+      if (input.pinned() && !growth.growing()) pinEnd()
     })
   }
 
@@ -775,7 +862,7 @@ export function createTimelineVirtualizer(input: Input) {
       return
     }
 
-    const fade = wrapper.animate([{ opacity: getComputedStyle(wrapper).opacity }, { opacity: 0 }], {
+    const fade = wrapper.animate([{ opacity: wrapper.style.opacity || "1" }, { opacity: 0 }], {
       duration: 110,
       easing: "cubic-bezier(.4,0,1,1)",
       fill: "forwards",
@@ -921,6 +1008,7 @@ export function createTimelineVirtualizer(input: Input) {
     ),
   )
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, delta, instance) => {
+    if (resizingGrowth || following()) return false
     // Prepended rows can resize more than once as deferred content mounts. Keep
     // compensating while they remain entirely above the visible content fold.
     const first = instance.range?.startIndex
@@ -1054,9 +1142,9 @@ export function createTimelineVirtualizer(input: Input) {
   ])
 
   const visibleUserMessageIDs = () => viewport.visibleUserMessageIDs
-  let visibleTurnsFrame: number | undefined
+  let visibleTurnsFrame: (() => void) | undefined
 
-  const updateVisibleTurns = () => {
+  const measureVisibleTurns = () => {
     if (!active()) return
     const header = input.showHeader() ? viewport.headerHeight : 0
     const top = viewport.top + header
@@ -1079,6 +1167,11 @@ export function createTimelineVirtualizer(input: Input) {
       if (!Predicate.isTagged(entry.row, "UserMessage")) return []
 
       if (entry.item.start >= top && entry.item.end <= bottom) return [entry.row.userMessageID]
+      if (modelHeight(String(entry.item.key)) !== undefined) {
+        return Math.max(entry.item.start + 1, entry.item.end - 28) > top && entry.item.start < bottom
+          ? [entry.row.userMessageID]
+          : []
+      }
 
       if (!root?.isConnected) return []
       const element = virtualizer.elementsCache.get(entry.item.key)
@@ -1107,15 +1200,22 @@ export function createTimelineVirtualizer(input: Input) {
       [...ids].every((id) => viewport.visibleUserMessageIDs.has(id))
     )
       return
-    setViewport("visibleUserMessageIDs", ids)
+    return ids
   }
 
   const scheduleVisibleTurns = () => {
     if (visibleTurnsFrame !== undefined) return
-    visibleTurnsFrame = requestAnimationFrame(() => {
-      visibleTurnsFrame = undefined
-      updateVisibleTurns()
-    })
+    let next: Set<string> | undefined
+    visibleTurnsFrame = frameLoop.addMeasured(
+      () => {
+        next = measureVisibleTurns()
+      },
+      () => {
+        visibleTurnsFrame = undefined
+        if (next) setViewport("visibleUserMessageIDs", next)
+        return false
+      },
+    )
   }
 
   createEffect(() => {
@@ -1140,7 +1240,7 @@ export function createTimelineVirtualizer(input: Input) {
       if (!active() || !root?.isConnected) return
       // A detached view can miss its nonzero ResizeObserver delivery. Publish
       // its real viewport before restoring the offset and admitting rows.
-      reportRect?.({ width: root.offsetWidth, height: root.offsetHeight })
+      reportRect?.(rootRect ?? { width: root.offsetWidth, height: root.offsetHeight })
 
       // A route can open this timeline on a tool call, e.g. a shell picked from inside a subagent, instead of its end.
       const target = input.reveal?.target()
@@ -1182,7 +1282,7 @@ export function createTimelineVirtualizer(input: Input) {
         following() &&
         !rendering.anchor &&
         !rendering.scrollAdjustment &&
-        root.scrollHeight - root.clientHeight - root.scrollTop <= 1
+        endOffset() - layoutState.offset <= 1
       )
         return
       prepareNavigation()
@@ -1237,7 +1337,7 @@ export function createTimelineVirtualizer(input: Input) {
     // scrollToEnd computes its target from the DOM, not the new size cache.
     virtualContent.style.height = `${virtualizer.getTotalSize()}px`
 
-    pinEnd()
+    pinEnd(undefined, false)
 
     // Report after core size adjustments finish so they cannot apply a delta
     // twice. This avoids waiting a frame for the native scroll event.
@@ -1407,6 +1507,7 @@ export function createTimelineVirtualizer(input: Input) {
   // Upward input is the one intent geometry cannot recover: nudging up while still a pixel from
   // the end must stop following, even though the resulting position still looks like the end.
   const handleListWheel = (event: WheelEvent & { currentTarget: HTMLDivElement }) => {
+    flushDeferredScroll()
     userScrollAt = performance.now()
     releaseAnchor()
     input.onUserScroll(event.target)
@@ -1415,6 +1516,7 @@ export function createTimelineVirtualizer(input: Input) {
   }
 
   const handleListTouchStart = (event: TouchEvent) => {
+    flushDeferredScroll()
     userScrollAt = performance.now()
     clearTouchTarget()
     releaseAnchor()
@@ -1474,6 +1576,7 @@ export function createTimelineVirtualizer(input: Input) {
   // Drag-selecting past the edge and dragging the scrollbar both scroll without a wheel or key,
   // so a held pointer is what separates those from the virtualizer's own measurement adjustments.
   const handleListPointerDown = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    flushDeferredScroll()
     releaseAnchor()
     input.onUserScroll(event.target)
     pointerHeld = true
@@ -1500,6 +1603,7 @@ export function createTimelineVirtualizer(input: Input) {
     if (!isScrollKeyTarget(event.target, key)) return
 
     if (scrollKeyOwner(event.currentTarget, event.target, key) !== event.currentTarget) return
+    flushDeferredScroll()
     userScrollAt = performance.now()
     releaseAnchor()
     input.onUserScroll(event.currentTarget)
@@ -1513,6 +1617,15 @@ export function createTimelineVirtualizer(input: Input) {
   const handleListScroll = (event: Event & { currentTarget: HTMLDivElement }) => {
     if (!active()) return
     const root = event.currentTarget
+    const userDriven = pointerHeld || touchScrolling || performance.now() - userScrollAt <= 250
+    if (!userDriven && deferredTop !== undefined) return
+    if (!userDriven && wholeTop !== undefined && scrollTop === wholeTop && layoutState.offset === wholeTop) {
+      if (root.dataset.hoverStale === undefined) root.dataset.hoverStale = ""
+      maxScroll = endOffset()
+      settleColdBottom()
+      input.onScheduleScrollState(root, scrollGeometry())
+      return
+    }
     const previousTop = scrollTop
     const previousMaxScroll = maxScroll
     scrollTop = root.scrollTop
@@ -1524,7 +1637,8 @@ export function createTimelineVirtualizer(input: Input) {
 
     // Content the timeline moves under a resting pointer must not reveal the hover-only footers it passes; the pointer
     // has to move again first. Scrolling the user drives keeps the native behavior.
-    if (!pointerHeld && performance.now() - userScrollAt > 250) root.dataset.hoverStale = ""
+    if (!pointerHeld && performance.now() - userScrollAt > 250 && root.dataset.hoverStale === undefined)
+      root.dataset.hoverStale = ""
     const atEnd = maxScroll - scrollTop <= endEpsilon
     const arrived = scrollTop > previousTop + endEpsilon || maxScroll < previousMaxScroll
 
@@ -1532,7 +1646,7 @@ export function createTimelineVirtualizer(input: Input) {
     if (maxScroll <= 1 || (atEnd && arrived && !rendering.anchor)) input.onPin()
     else if ((pointerHeld || touchScrolling) && scrollTop < previousTop - endEpsilon) input.onUnpin()
     settleColdBottom()
-    input.onScheduleScrollState(root)
+    input.onScheduleScrollState(root, scrollGeometry())
     input.onHistoryScroll()
   }
 
@@ -1712,7 +1826,7 @@ export function createTimelineVirtualizer(input: Input) {
               if (active()) input.setContentRef(element)
             }}
             style={{
-              height: `${virtualizer.getTotalSize() - rendering.scrollAdjustment}px`,
+              height: `${contentHeight()}px`,
               position: "relative",
               width: "100%",
               visibility: coldBottomMount ? "hidden" : undefined,
@@ -1747,6 +1861,8 @@ export function createTimelineVirtualizer(input: Input) {
   }
 
   onCleanup(() => {
+    flushScrollFrame?.()
+    flushScrollFrame = undefined
     landGrowth()
     cache.delete(ownerSessionKey)
     cache.set(ownerSessionKey, {
@@ -1758,7 +1874,8 @@ export function createTimelineVirtualizer(input: Input) {
 
     while (cache.size > 16) cache.delete(cache.keys().next().value!)
 
-    if (visibleTurnsFrame !== undefined) cancelAnimationFrame(visibleTurnsFrame)
+    if (visibleTurnsFrame !== undefined) visibleTurnsFrame()
+    visibleTurnsFrame = undefined
     coldPending = false
     contentObserver?.disconnect()
     viewportObserver?.disconnect()
