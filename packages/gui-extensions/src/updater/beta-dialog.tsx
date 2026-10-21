@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js"
 import { Option } from "effect"
 import { Button } from "@opencode/ui/button"
+import { ScrollView } from "@opencode/ui/scroll-view"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { useExtension, type DialogHandle, type SetupContext } from "../sdk"
 import { betaBuild, decodeEmbeddedNotes, sliceBetaNotes, type BetaNote, type BetaNotes } from "./beta-notes"
@@ -52,9 +53,13 @@ export function DialogBetaNotes(props: {
           description={ctx.plural("beta.since", props.notes.total, { build: betaBuild(props.previous) })}
         />
       </DialogHeader>
-      <DialogBody class="max-h-[min(calc(100vh-220px),440px)] !overflow-y-auto gap-4 px-4 pb-1">
-        <Section title={ctx.t("beta.added")} notes={props.notes.added} open={props.open} />
-        <Section title={ctx.t("beta.fixed")} notes={props.notes.fixed} open={props.open} />
+      <DialogBody class="max-h-[min(calc(100vh-220px),440px)]">
+        <ScrollView>
+          <div class="flex flex-col gap-4 px-4 pb-1">
+            <Section title={ctx.t("beta.added")} notes={props.notes.added} open={props.open} />
+            <Section title={ctx.t("beta.fixed")} notes={props.notes.fixed} open={props.open} />
+          </div>
+        </ScrollView>
       </DialogBody>
       <DialogFooter>
         <Show when={props.notes.more}>
