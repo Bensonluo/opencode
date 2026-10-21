@@ -3,9 +3,16 @@ import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Option } from "effect"
 import { Button } from "@opencode/ui/button"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
-import { enter } from "@opencode/ui/motion"
+import { enter, prefersReducedMotion } from "@opencode/ui/motion"
 import { useExtension, type DialogHandle, type SetupContext } from "../sdk"
-import { betaBuild, decodeEmbeddedNotes, sliceBetaNotes, type BetaNote, type BetaNotes } from "./beta-notes"
+import {
+  betaBuild,
+  decodeEmbeddedNotes,
+  sliceBetaNotes,
+  visualSource,
+  type BetaNote,
+  type BetaNotes,
+} from "./beta-notes"
 import type definition from "./index"
 
 /**
@@ -116,20 +123,18 @@ function Section(props: { title: string; notes: readonly BetaNote[]; open: (href
           <For each={props.notes}>
             {(note) => (
               <li class="flex min-w-0 items-start gap-3">
-                <span data-beta-icon aria-hidden="true" class="mt-0.5 flex shrink-0 text-v2-icon-icon-muted">
-                  <KindIcon type={note.type} />
+                <span aria-hidden="true" class="mt-0.5 flex size-4 shrink-0 text-v2-icon-icon-muted">
+                  <Show when={!note.visual}>
+                    <span data-beta-icon class="flex">
+                      <KindIcon type={note.type} />
+                    </span>
+                  </Show>
                 </span>
-                <div class="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
+                <div class="flex min-w-0 flex-1 flex-col gap-1.5 [overflow-wrap:anywhere]">
                   <p class="m-0 text-[13px] leading-5 font-[500] tracking-[-0.04px] text-v2-text-text-base">
                     {note.summary}
                   </p>
-                  <Show when={note.description}>
-                    {(description) => (
-                      <p class="m-0 text-[13px] leading-5 font-[440] tracking-[-0.04px] text-v2-text-text-muted [text-wrap:pretty]">
-                        {description()}
-                      </p>
-                    )}
-                  </Show>
+                  <Show when={note.visual}>{(svg) => <Visual svg={svg()} label={note.description} />}</Show>
                   <Meta note={note} open={props.open} />
                 </div>
               </li>
@@ -141,11 +146,39 @@ function Section(props: { title: string; notes: readonly BetaNote[]; open: (href
   )
 }
 
-/** Who made it, where, and its pull request, quietly. */
+/** What changed, drawn: the pull request's looping SVG, only ever as an image, in the dialog's icon colour. */
+function Visual(props: { svg: string; label?: string }) {
+  const [color, setColor] = createSignal<string>()
+  let frame!: HTMLSpanElement
+
+  onMount(() => setColor(getComputedStyle(frame).color))
+
+  return (
+    <span
+      ref={frame}
+      class="block h-[72px] w-[240px] max-w-full rounded-[8px] bg-current/[0.04] text-v2-icon-icon-base"
+    >
+      <Show when={color()}>
+        {(value) => (
+          <img
+            src={visualSource(props.svg, { color: value(), still: prefersReducedMotion() })}
+            alt={props.label ?? ""}
+            width="240"
+            height="72"
+            draggable={false}
+            class="block size-full object-contain"
+          />
+        )}
+      </Show>
+    </span>
+  )
+}
+
+/** Who made it and its pull request, quietly. */
 function Meta(props: { note: BetaNote; open: (href: string) => void }) {
   return (
-    <Show when={props.note.author || props.note.scope || props.note.pr}>
-      <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-4 font-[440] text-v2-text-text-faint">
+    <Show when={props.note.author || props.note.pr}>
+      <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-4 font-[440] text-v2-text-text-faint">
         <Show when={props.note.author}>
           {(author) => (
             <span class="flex min-w-0 items-center gap-1.5 text-v2-text-text-muted">
@@ -154,20 +187,10 @@ function Meta(props: { note: BetaNote; open: (href: string) => void }) {
             </span>
           )}
         </Show>
-        <Show when={props.note.scope}>
-          {(scope) => (
-            <>
-              <Show when={props.note.author}>
-                <span aria-hidden="true">·</span>
-              </Show>
-              <span>{scope()}</span>
-            </>
-          )}
-        </Show>
         <Show when={props.note.pr}>
           {(pr) => (
             <>
-              <Show when={props.note.author || props.note.scope}>
+              <Show when={props.note.author}>
                 <span aria-hidden="true">·</span>
               </Show>
               <a
@@ -217,7 +240,7 @@ function Avatar(props: { name: string; src?: string }) {
   )
 }
 
-/** New is a sparkle, a fix a check, a speedup a bolt: one 16px outline family. */
+/** Stands in for a change without a visual. New is a sparkle, a fix a check, a speedup a bolt. */
 function KindIcon(props: { type: BetaNote["type"] }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linejoin="round">

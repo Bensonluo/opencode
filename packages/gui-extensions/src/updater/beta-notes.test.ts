@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { Option } from "effect"
-import { betaBuild, decodeEmbeddedNotes, sliceBetaNotes, type EmbeddedNotes } from "./beta-notes"
+import { betaBuild, decodeEmbeddedNotes, sliceBetaNotes, visualSource, type EmbeddedNotes } from "./beta-notes"
 
 const sha = (n: number) => n.toString(16).padStart(4, "0").padEnd(40, "a")
 
@@ -31,14 +31,13 @@ test("lists the notes after the previous commit, features first, humanized, with
       notes: [
         {
           type: "fix",
-          scope: "desktop",
           summary: "disable animated wheel scrolling on linux.",
           pr: 57120,
           sha: short(30),
           author: { name: "Ada Lovelace", login: "ada", avatar: "https://avatars.githubusercontent.com/u/1?s=48" },
           description: "Wheel scrolling on Linux no longer glides.",
         },
-        { type: "feat", scope: "app", summary: "merge projects across servers", sha: short(29) },
+        { type: "feat", summary: "merge projects across servers", sha: short(29) },
         { type: "perf", summary: "cache the model list", sha: short(28) },
         { type: "feat", summary: "already seen", sha: short(26) },
       ],
@@ -47,14 +46,13 @@ test("lists the notes after the previous commit, features first, humanized, with
   )
 
   expect(Option.getOrThrow(notes)).toEqual({
-    added: [{ sha: short(29), type: "feat", summary: "Merge projects across servers", scope: "app" }],
+    added: [{ sha: short(29), type: "feat", summary: "Merge projects across servers" }],
     fixed: [
       {
         sha: short(30),
         type: "fix",
         summary: "Disable animated wheel scrolling on linux",
         description: "Wheel scrolling on Linux no longer glides.",
-        scope: "desktop",
         pr: { number: 57120, url: "https://github.com/anomalyco/opencode/pull/57120" },
         author: { name: "Ada Lovelace", avatar: "https://avatars.githubusercontent.com/u/1?s=48" },
       },
@@ -101,4 +99,16 @@ test.each([
   ["1.2.3", "1.2.3"],
 ])("names build %s", (version, build) => {
   expect(betaBuild(version)).toBe(build)
+})
+
+const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72"><rect fill="currentColor"><animate attributeName="width" values="4;8" dur="1s"/></rect><set attributeName="x" to="1"/></svg>`
+
+test("sources a visual with the page's colour, and a still frame for reduced motion", () => {
+  const source = (still: boolean) =>
+    decodeURIComponent(visualSource(SVG, { color: "rgb(1, 2, 3)", still }).replace("data:image/svg+xml,", ""))
+
+  expect(source(false)).toBe(SVG.replace('240 72">', '240 72"><style>svg{color:rgb(1, 2, 3)}</style>'))
+  expect(source(true)).toBe(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72"><style>svg{color:rgb(1, 2, 3)}*{animation:none!important;transition:none!important}</style><rect fill="currentColor"></rect></svg>`,
+  )
 })

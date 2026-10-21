@@ -21,123 +21,71 @@ const people = {
   wren: { name: "Wren Abernathy", login: "wren", avatar: avatar(265) },
 } satisfies Record<string, Author>
 
+// Example visuals, as a pull request would carry them under "### Visual".
+const visuals = {
+  dock: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72" fill="none"><style>.d{transform-box:fill-box;transform-origin:50% 100%;animation:g 4s cubic-bezier(.2,.8,.2,1) infinite}.c{animation:f 4s ease-out infinite}@keyframes g{0%,12%{transform:scaleY(.3);opacity:0}28%,72%{transform:none;opacity:1}88%,100%{transform:scaleY(.3);opacity:0}}@keyframes f{0%,26%{opacity:0}36%,70%{opacity:1}80%,100%{opacity:0}}</style><g class="d"><rect x="56" y="10" width="128" height="30" rx="6" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-opacity=".35"/><g class="c" fill="currentColor"><rect x="64" y="17" width="64" height="4" rx="2" fill-opacity=".55"/><rect x="64" y="25" width="40" height="4" rx="2" fill-opacity=".25"/><rect x="140" y="27" width="18" height="8" rx="4" fill-opacity=".25"/><rect x="161" y="27" width="16" height="8" rx="4" fill-opacity=".6"/></g></g><rect x="48" y="40" width="144" height="24" rx="8" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".5"/><rect x="58" y="50" width="52" height="4" rx="2" fill="currentColor" fill-opacity=".35"/><circle cx="180" cy="52" r="6" fill="currentColor" fill-opacity=".7"/></svg>',
+  spinners:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><style>.s{transform-box:view-box;animation:r 1.6s linear infinite}.p{animation:p 1.6s ease-in-out infinite}@keyframes r{to{transform:rotate(360deg)}}@keyframes p{0%,100%{opacity:.08}50%{opacity:.3}}</style><path class="p" d="M44 36h152" stroke-width="1" stroke-dasharray="2 4"/><g stroke-opacity=".15"><circle cx="60" cy="36" r="11"/><circle cx="120" cy="36" r="11"/><circle cx="180" cy="36" r="11"/></g><g stroke-opacity=".8"><path class="s" style="transform-origin:60px 36px" d="M60 25a11 11 0 0 1 11 11"/><path class="s" style="transform-origin:120px 36px" d="M120 25a11 11 0 0 1 11 11"/><path class="s" style="transform-origin:180px 36px" d="M180 25a11 11 0 0 1 11 11"/></g></svg>',
+  palette:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72" fill="currentColor"><style>.t{transform-box:fill-box;transform-origin:0 50%;animation:t 4s steps(6,end) infinite}.h{animation:h 4s ease-out infinite}.o{animation:o 4s ease-out infinite}@keyframes t{0%,8%{transform:scaleX(0)}38%,84%{transform:none}96%,100%{transform:scaleX(0)}}@keyframes h{0%,40%{opacity:0}50%,84%{opacity:1}94%,100%{opacity:0}}@keyframes o{0%,40%{opacity:.45}50%,84%{opacity:1}94%,100%{opacity:.45}}</style><rect x="52" y="4" width="136" height="64" rx="7" fill-opacity=".06" stroke="currentColor" stroke-opacity=".35"/><rect class="t" x="62" y="13" width="44" height="5" rx="2.5" fill-opacity=".6"/><rect x="52" y="24" width="136" height="1" fill-opacity=".15"/><rect x="62" y="31" width="22" height="3" rx="1.5" fill-opacity=".25"/><rect class="h" x="56" y="38" width="128" height="12" rx="4" fill-opacity=".12"/><circle class="o" cx="66" cy="44" r="3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-opacity=".55"/><rect class="o" x="74" y="42" width="52" height="4" rx="2" fill-opacity=".55"/><rect x="62" y="56" width="8" height="4" rx="2" fill-opacity=".2"/><rect x="74" y="56" width="70" height="4" rx="2" fill-opacity=".2"/></svg>',
+  sidebar:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72" fill="currentColor"><style>.b{animation:b 4.5s cubic-bezier(.45,0,.2,1) infinite}.m{animation:m 4.5s cubic-bezier(.45,0,.2,1) infinite}@keyframes b{0%,15%{transform:translateX(-44px)}40%,70%{transform:none}95%,100%{transform:translateX(-44px)}}@keyframes m{0%,15%{transform:translateX(-44px)}40%,70%{transform:none}95%,100%{transform:translateX(-44px)}}</style><defs><clipPath id="w"><rect x="44" y="6" width="152" height="60" rx="6"/></clipPath></defs><rect x="44" y="6" width="152" height="60" rx="6" fill-opacity=".05" stroke="currentColor" stroke-opacity=".35"/><g clip-path="url(#w)"><g class="b"><rect x="44" y="6" width="44" height="60" fill-opacity=".1"/><rect x="52" y="16" width="26" height="4" rx="2" fill-opacity=".5"/><rect x="52" y="26" width="20" height="4" rx="2" fill-opacity=".25"/><rect x="52" y="36" width="24" height="4" rx="2" fill-opacity=".25"/></g><g class="m"><rect x="88" y="6" width="1" height="60" fill-opacity=".25"/><rect x="100" y="16" width="64" height="5" rx="2.5" fill-opacity=".55"/><rect x="100" y="27" width="84" height="4" rx="2" fill-opacity=".25"/><rect x="100" y="36" width="72" height="4" rx="2" fill-opacity=".25"/><rect x="100" y="45" width="80" height="4" rx="2" fill-opacity=".25"/></g></g></svg>',
+}
+
 const commits: [
   type: "feat" | "fix" | "perf",
-  scope: string,
   summary: string,
   pr: number | undefined,
   author: Author,
   description?: string,
+  visual?: string,
 ][] = [
   [
+    "feat",
+    "grow questions and permissions out of the composer",
+    57103,
+    people.mira,
+    "Questions and permission requests grow out of the top of the composer, and fold back into it once answered.",
+    visuals.dock,
+  ],
+  [
     "fix",
-    "app",
-    "open select dialogs at the top",
+    "keep activity spinners in step",
     57101,
     people.theo,
-    "Select dialogs used to open scrolled to the last item you picked. They now start at the top, with your pick still highlighted.",
+    "Every busy spinner on screen turns in step, wherever it appeared.",
+    visuals.spinners,
   ],
   [
     "feat",
-    "app",
-    "merge projects across servers in the location dialog",
+    "find settings from the command palette",
     57094,
-    people.mira,
-    "A project you open on two servers shows up once in the location dialog, with each server listed under it.",
+    people.juno,
+    "Typing in the command palette also finds settings, in their own group.",
+    visuals.palette,
   ],
+  ["fix", "open activity panel above the capsule", 57088, people.ravi],
   [
     "feat",
-    "app",
-    "open the right panel on a new tab",
+    "glide the sidebar open and closed",
     57090,
-    people.juno,
-    "New tabs open with the right panel showing, so changes and files are one glance away.",
-  ],
-  ["fix", "app", "open activity panel above the capsule", 57088, people.ravi],
-  [
-    "fix",
-    "desktop",
-    "disable animated wheel scrolling on linux",
-    57080,
     people.wren,
-    "Mouse wheels on Linux scroll in steps again. The smooth scrolling animation lagged behind the wheel on some drivers.",
+    "The sidebar slides in and out, and the content beside it moves with its edge.",
+    visuals.sidebar,
   ],
-  [
-    "feat",
-    "desktop",
-    "pick models from a model dialog with favorites and recent",
-    55838,
-    people.theo,
-    "Choosing a model opens a dialog with your favorites and recent models at the top, and search across every provider.",
-  ],
-  [
-    "perf",
-    "core",
-    "cache the model list between sessions",
-    57050,
-    people.juno,
-    "The model list loads from a local cache and refreshes in the background, so new sessions open without waiting on providers.",
-  ],
-  [
-    "feat",
-    "session-ui",
-    "style markdown tables like generated UI tables",
-    57002,
-    people.mira,
-    "Tables in replies share the look of generated UI tables: quieter borders, aligned numbers and a header that stays readable.",
-  ],
-  ["fix", "app", "fit connect dialog steps to their content under a fixed top edge", 57006, people.wren],
-  [
-    "feat",
-    "app",
-    "add an experimental session inbox to the sidebar",
-    55647,
-    people.ravi,
-    "Turn on the session inbox under Experiments to see sessions that finished or need an answer in one place.",
-  ],
-  [
-    "fix",
-    "core",
-    "debounce compatibility skill reloads",
-    56260,
-    people.theo,
-    "Saving several skill files at once reloads skills once instead of once per file.",
-  ],
-  ["fix", "session-ui", "restore blue user bubbles with grey pending steers", 57001, people.mira],
-  [
-    "feat",
-    "ui",
-    "open images from their place in the message",
-    56896,
-    people.juno,
-    "Clicking an image in a message grows it into the viewer from where it sat, and closing it puts it back.",
-  ],
-  [
-    "fix",
-    "desktop",
-    "install each Windows channel into its own directory",
-    56904,
-    people.wren,
-    "Beta and stable builds on Windows no longer overwrite each other's files.",
-  ],
-  ["feat", "app", "show MCP errors from a failed status link", undefined, people.ravi],
-  ["fix", "ui", "open dialogs with their input focused", undefined, people.theo],
-  [
-    "fix",
-    "app",
-    "default agent notifications to off",
-    56990,
-    people.juno,
-    "Agent notifications start off. Turn them on in Settings when you want a ping as agents finish.",
-  ],
-  [
-    "feat",
-    "app",
-    "add Focus and Pro interface picker to preferences",
-    56898,
-    people.mira,
-    "Preferences has a picker between Focus, which hides the side panels until you need them, and Pro, which keeps everything in view.",
-  ],
+  ["fix", "disable animated wheel scrolling on linux", 57080, people.wren],
+  ["perf", "cache the model list between sessions", 57050, people.juno],
+  ["feat", "merge projects across servers in the location dialog", 55838, people.theo],
+  ["fix", "fit connect dialog steps to their content under a fixed top edge", 57006, people.wren],
+  ["feat", "add an experimental session inbox to the sidebar", 55647, people.ravi],
+  ["fix", "debounce compatibility skill reloads", 56260, people.theo],
+  ["fix", "restore blue user bubbles with grey pending steers", 57001, people.mira],
+  ["feat", "open images from their place in the message", 56896, people.juno],
+  ["fix", "install each Windows channel into its own directory", 56904, people.wren],
+  ["feat", "show MCP errors from a failed status link", undefined, people.ravi],
+  ["fix", "open dialogs with their input focused", undefined, people.theo],
+  ["fix", "default agent notifications to off", 56990, people.juno],
+  ["feat", "add Focus and Pro interface picker to preferences", 56898, people.mira],
 ]
 
 const sha = (n: number) => n.toString(16).padStart(4, "0").padEnd(40, "a")
@@ -148,20 +96,20 @@ const embedded = (picked: typeof commits): EmbeddedNotes => ({
   commits: [sha(1000), ...picked.flatMap((_, i) => [sha(i * 2 + 1), sha(i * 2 + 2)]), sha(999)].map((value) =>
     value.slice(0, 12),
   ),
-  notes: picked.map(([type, scope, summary, pr, author, description], i) => ({
+  notes: picked.map(([type, summary, pr, author, description, visual], i) => ({
     type,
-    scope,
     summary,
     pr,
     sha: sha(i * 2 + 1).slice(0, 12),
     author,
     description,
+    visual,
   })),
 })
 
-// What a build without GitHub access embeds: commit authors without avatars, and no descriptions.
+// What a build without GitHub access embeds: commit authors without avatars, and no visuals.
 const offline = (picked: typeof commits): typeof commits =>
-  picked.map(([type, scope, summary, pr, author]) => [type, scope, summary, pr, { name: author.name }])
+  picked.map(([type, summary, pr, author]) => [type, summary, pr, { name: author.name }])
 
 function Fixture(props: { picked: typeof commits; previous?: string; previousCommit?: string }) {
   const dialog = useDialog()
@@ -203,7 +151,7 @@ export const Many = {
   render: () => <Fixture picked={commits} previous="0.0.0-beta-21012" />,
 }
 
-/** Built without GitHub: commit authors as initials, and the subjects alone. */
+/** Built without GitHub: commit authors as initials, and kind icons where the visuals would be. */
 export const Offline = { render: () => <Fixture picked={offline(commits.slice(0, 8))} /> }
 
 /** Only fixes, so the New section is not shown. */

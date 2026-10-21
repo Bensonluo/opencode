@@ -238,3 +238,33 @@ test.each([
 ])("keeps the commit authors and subjects with %s", async (_, token, request) => {
   expect(await BetaNotes.enrich(notes(), { token, fetch: request })).toEqual(notes())
 })
+
+const SVG = `<svg viewBox="0 0 240 72"><rect width="40" height="8" fill="currentColor"><animate attributeName="width" values="40;80;40" dur="3s" repeatCount="indefinite"/></rect></svg>`
+
+const withVisual = (svg: string) =>
+  `### What does this PR do?\n\nIt grows.\n\n### Visual\n\n\`\`\`svg\n${svg}\n\`\`\`\n\n### Checklist`
+
+test.each([
+  [
+    "a visual, with its namespace added",
+    withVisual(SVG),
+    SVG.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"'),
+  ],
+  [
+    "scripts, foreign objects, handlers and external references stripped",
+    withVisual(
+      `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(1)</script><foreignObject><div/></foreignObject><use href="https://example.com/a.svg#x"/><use href="#x"/><rect style="fill:url(https://example.com/p)" onclick='x()'/></svg>`,
+    ),
+    `<svg xmlns="http://www.w3.org/2000/svg"><use/><use href="#x"/><rect style="fill:none"/></svg>`,
+  ],
+  ["nothing without a Visual section", "### What does this PR do?\n\n```svg\n<svg></svg>\n```", undefined],
+  ["nothing that is not one root svg", withVisual("<div><svg></svg></div>"), undefined],
+  ["nothing with an unclosed script", withVisual("<svg><script>alert(1)</svg>"), undefined],
+  ["nothing over 8 KB", withVisual(`<svg>${"<rect/>".repeat(1200)}</svg>`), undefined],
+])("takes %s", (_, body, expected) => {
+  expect(BetaNotes.visual(body)).toBe(expected)
+})
+
+test("keeps the visual's code out of the description", () => {
+  expect(BetaNotes.describe(`\`\`\`svg\n${SVG}\n\`\`\`\n\nIt grows.`, "grow")).toBe("It grows.")
+})
