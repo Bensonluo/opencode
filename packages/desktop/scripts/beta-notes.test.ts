@@ -148,7 +148,21 @@ test.each([
     undefined,
   ],
   ["nothing that repeats the subject", "Fix the thing.", undefined],
-  ["nothing too long to read at a glance", "A".repeat(241), undefined],
+  [
+    "past the template's filler lines",
+    "**Issue for this PR:** N/A\nCloses #\nType of change: Bug fix\n- [x] Bug fix\n<!-- note -->\n\nThe dialog opens at the top.",
+    "The dialog opens at the top.",
+  ],
+  [
+    "the whole sentences that fit under the cap",
+    `Short first sentence. ${"Long ".repeat(50)}second.`,
+    "Short first sentence.",
+  ],
+  [
+    "a long sentence cut at a word, with an ellipsis",
+    `Unifies the card surface, ${"and more words ".repeat(20)}end.`,
+    `Unifies the card surface, ${"and more words ".repeat(14).trim()}…`,
+  ],
   ["nothing from an empty body", "", undefined],
 ])("describes %s", (_, body, expected) => {
   expect(BetaNotes.describe(body, "fix the thing")).toBe(expected)

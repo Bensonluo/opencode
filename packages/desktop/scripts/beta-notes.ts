@@ -38,7 +38,7 @@ const REPOSITORY = { owner: "anomalyco", name: "opencode" }
 /** Pull requests per GitHub query; the newest 200 commits take at most two. */
 const BATCH = 100
 
-/** A description longer than this reads as a wall of text in the dialog, so the subject stands alone. */
+/** A description longer than this reads as a wall of text in the dialog, so it is cut to fit. */
 const DESCRIPTION = 240
 
 /**
@@ -120,16 +120,19 @@ export async function enrich(
 
 /**
  * The first sentence or two of what a pull request says it does, as plain text: from the PR template's "What does this
- * PR do?" or a "Summary" section, else the text before the first heading, else a "Changes" or "Solution" section. None
- * when it only repeats the subject or is too long to read at a glance.
+ * PR do?" or a "Summary" section, else the text before the first heading, else a "Changes" or "Solution" section. The
+ * template's own lines (issue links, "N/A", the type-of-change checklist) never count. Text over the cap ends at its
+ * last whole sentence that fits, or is cut at a word with an ellipsis. None when it only repeats the subject.
  */
 export function describe(body: string, summary: string) {
+  const heading = (line: string) => /^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*:?$/.test(line)
+
+  // Template headings stay, as they end the section before them.
   const lines = body
     .replace(/<!--[\s\S]*?-->/g, "")
     .split(/\r?\n/)
     .map((line) => line.trim())
-
-  const heading = (line: string) => /^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*:?$/.test(line)
+    .filter((line) => heading(line) || !BOILERPLATE.some((pattern) => pattern.test(line)))
 
   const until = (rest: string[]) => {
     const end = rest.findIndex(heading)
@@ -168,11 +171,26 @@ export function describe(body: string, summary: string) {
       const text = first && second && `${first} ${second}`.length <= DESCRIPTION ? `${first} ${second}` : first
 
       // Fragments of a list, or text that starts with code, don't read as a sentence on their own.
-      return text && /^[A-Z0-9"“]/.test(text) && text.length <= DESCRIPTION && words(text) !== words(summary)
-        ? text
-        : undefined
+      return text && /^[A-Z0-9"“]/.test(text) && words(text) !== words(summary) ? cap(text) : undefined
     })
     .find((text) => text !== undefined)
+}
+
+/** Lines of the PR template that say nothing about the change, whether a heading, a label or a filler answer. */
+const BOILERPLATE = [
+  /^\W*(issue for this pr|type of change|how did you verify|screenshots|checklist)\b/i,
+  /^[-*+]\s*\[[ x]\]/i,
+  /^\W*(n\/a|none|tbd)\W*$/i,
+  /^\W*((closes|fixes|resolves)\s*)?([\w.-]+\/[\w.-]+)?#\d*\W*$/i,
+]
+
+/** A sentence over the cap, cut at its last word that fits, with an ellipsis. */
+function cap(text: string) {
+  if (text.length <= DESCRIPTION) return text
+
+  const cut = text.slice(0, DESCRIPTION - 1).replace(/\s+\S*$/, "")
+
+  return `${cut.replace(/[\s,;:—–-]+$/, "")}…`
 }
 
 /** Markdown as the plain text it reads as. */

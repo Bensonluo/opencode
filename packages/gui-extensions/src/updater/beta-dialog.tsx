@@ -60,7 +60,8 @@ export function DialogBetaNotes(props: {
     createResizeObserver(list, measure)
     list
       .querySelectorAll("[data-beta-icon]")
-      .forEach((icon, index) => enter(icon, { scale: 0.6, duration: 320, delay: 120 + Math.min(index, 8) * 40 }))
+      // A quick settle as the dialog opens: every icon is in place within 150 ms, and reduced motion skips it.
+      .forEach((icon, index) => enter(icon, { scale: 0.9, duration: 110, delay: Math.min(index, 4) * 10 }))
   })
 
   return (
