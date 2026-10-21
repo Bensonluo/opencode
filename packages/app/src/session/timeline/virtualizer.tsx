@@ -12,6 +12,7 @@ import { Timeline, TimelineRow } from "@opencode/session-ui/timeline/projection"
 import {
   readTimelineTypography,
   type TimelineLayoutEnvironment,
+  type TimelineTypography,
   type TimelineRowLayout,
 } from "@opencode/session-ui/timeline/text-layout"
 import { useLanguage } from "@/runtime/i18n/language"
@@ -1473,9 +1474,13 @@ export function createTimelineVirtualizer(input: Input) {
     viewportObserver?.observe(root)
     settleColdBottom()
     let revision = 0
-    const refresh = () => {
+    // Faces already loaded when the model was built; their loadingdone events change nothing.
+    let knownFaces = new Set<FontFace>()
+    const refresh = (event?: Event) => {
+      const typography = readTimelineTypography(root, revision + 1)
+      const previous = layoutState.environment?.typography
+      if (previous && sameTypography(previous, typography) && !loadsNewFace(event, typography, knownFaces)) return
       const current = ++revision
-      const typography = readTimelineTypography(root, current)
       const text = [...input.projection.messageByID().values()]
         .flatMap((message) =>
           message.type === "user"
@@ -1487,8 +1492,11 @@ export function createTimelineVirtualizer(input: Input) {
               : [],
         )
         .join("")
-      setLayoutState("environment", undefined)
-      setLayoutState("fontsReady", false)
+      // Once revealed, rows keep the current model until the new one is ready and swap in one commit.
+      if (!previous) {
+        setLayoutState("environment", undefined)
+        setLayoutState("fontsReady", false)
+      }
       void Promise.all([
         document.fonts.load(`${typography.weight} ${typography.size}px ${typography.family}`, text),
         document.fonts.load(`${typography.medium} ${typography.size}px ${typography.family}`, text),
@@ -1496,6 +1504,7 @@ export function createTimelineVirtualizer(input: Input) {
       ]).then(
         () => {
           if (current !== revision || !root.isConnected) return
+          knownFaces = new Set([...document.fonts].filter((face) => face.status === "loaded"))
           setLayoutState("environment", {
             width: rootRect?.width ?? root.clientWidth,
             desktop: isDesktop(),
@@ -1512,7 +1521,7 @@ export function createTimelineVirtualizer(input: Input) {
         },
       )
     }
-    const observer = new MutationObserver(refresh)
+    const observer = new MutationObserver(() => refresh())
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] })
     document.fonts.addEventListener("loadingdone", refresh)
     refresh()
@@ -1954,4 +1963,24 @@ export function createTimelineVirtualizer(input: Input) {
     revealPart,
     View,
   }
+}
+
+function sameTypography(a: TimelineTypography, b: TimelineTypography) {
+  return (Object.keys(a) as (keyof TimelineTypography)[]).every((key) => key === "revision" || a[key] === b[key])
+}
+
+// A face of the timeline's families that loaded after the model was built can change its text metrics.
+function loadsNewFace(event: Event | undefined, typography: TimelineTypography, known: Set<FontFace>) {
+  if (!(event instanceof FontFaceSetLoadEvent)) return false
+  const families = new Set(
+    [typography.family, typography.codeFamily].flatMap((list) => list.split(",").map(familyName)),
+  )
+  return event.fontfaces.some((face) => !known.has(face) && families.has(familyName(face.family)))
+}
+
+function familyName(value: string) {
+  return value
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .toLowerCase()
 }
