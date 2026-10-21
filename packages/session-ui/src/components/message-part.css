@@ -229,6 +229,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    gap: 10px;
     width: 100%;
 
     @media (hover: hover) {
@@ -269,55 +270,17 @@
     text-align: end;
   }
 
-  /* Parts of the meta line a waiting steer folds away until hover. They close and open in width, so Pending slides
-     instead of jumping. */
-  [data-slot="user-message-meta-more"] {
-    display: inline-grid;
-    grid-template-columns: 1fr;
-    min-width: 0;
-    vertical-align: bottom;
-
-    > * {
-      min-width: 0;
-      overflow: hidden;
-      white-space: nowrap;
-    }
-
-    &[data-tail] {
-      flex: 0 0 auto;
-    }
-
-    &[data-actions] {
-      flex: 0 0 auto;
-
-      > * {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        padding-inline-start: 10px;
-      }
-    }
-
-    @media (hover: hover) {
-      transition:
-        grid-template-columns 0.2s ease,
-        opacity 0.2s ease;
-    }
-  }
-
-  @media (hover: hover) {
-    &:is([data-pending], [data-pending-leaving]):not(:hover, :focus-within)
-      [data-slot="user-message-meta-more"]:not(:has([data-expanded])) {
-      grid-template-columns: 0fr;
-      opacity: 0;
-    }
-
-    /* A delivered steer's Pending line fades out as it was instead of vanishing. */
-    &[data-pending-leaving]:not(:hover, :focus-within) [data-slot="user-message-copy-wrapper"] {
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.22s ease;
-    }
+  /* Like the iOS app, a waiting run wears one quiet label above its first bubble; it folds away as the run delivers. */
+  [data-slot="user-message-pending-label"] {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    height: calc(20px * var(--user-run-label, 0));
+    margin-bottom: calc(4px * var(--user-run-label, 0));
+    overflow: hidden;
+    opacity: var(--user-run-label, 0);
+    user-select: none;
+    white-space: nowrap;
   }
 
   &:hover [data-slot="user-message-copy-wrapper"],
@@ -326,13 +289,6 @@
     opacity: 1;
     pointer-events: auto;
     transition: opacity 0.15s ease;
-  }
-
-  /* A pending steer keeps its Pending label and actions in view. */
-  &[data-pending] [data-slot="user-message-copy-wrapper"] {
-    opacity: 1;
-    pointer-events: auto;
-    transition: none;
   }
 
   [data-slot="user-message-copy-wrapper"] > * {
@@ -433,7 +389,7 @@
 
 /* Rows the timeline moves under a resting pointer stay quiet until the pointer moves. */
 [data-hover-stale]
-  [data-component="user-message"]:not([data-pending], :focus-within)
+  [data-component="user-message"]:not(:focus-within)
   [data-slot="user-message-copy-wrapper"]:not(:has([data-expanded])),
 [data-hover-stale] [data-component="text-part"]:not(:focus-within) [data-slot="text-part-copy-wrapper"] {
   @media (hover: hover) {

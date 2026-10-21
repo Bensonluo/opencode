@@ -4,7 +4,6 @@ import {
   createSignal,
   For,
   Index,
-  on,
   onCleanup,
   Show,
   untrack,
@@ -300,28 +299,17 @@ export function CurrentUserMessageDisplay(props: {
   // Mobile shows the current agent and model in the composer and switch notices, so repeating them per message is noise.
   const mobile = createMediaQuery("(max-width: 767px)")
 
-  // A delivered steer keeps its Pending line a moment longer, so the line fades out as it was instead of vanishing.
-  const [leaving, setLeaving] = createSignal(false)
-  createEffect(
-    on(
-      waiting,
-      (now, before) => {
-        setLeaving(false)
-        if (now || !before) return
-        setLeaving(true)
-        const timer = setTimeout(() => setLeaving(false), 240)
-        onCleanup(() => clearTimeout(timer))
-      },
-      { defer: true },
-    ),
-  )
-  const showsPending = () => waiting() || leaving()
-  const pendingLabel = createMemo(() => (showsPending() ? i18n.t("ui.message.pending") : ""))
-  // Mobile shows the agent and model in the composer and switch notices instead.
-  const metaDetail = createMemo(() =>
+  const metaHead = createMemo(() =>
     mobile() ? "" : [agentLabel(props.agent, data.agents), model()].filter(Boolean).join("\u00A0\u00B7\u00A0"),
   )
-  const metaHead = () => pendingLabel() || metaDetail()
+
+  // Like the iOS app, a waiting run wears one quiet label above its first bubble. The label keeps its last words while
+  // it folds away as the run delivers.
+  const labelled = createMemo(() => waiting() && !props.run?.above)
+  const [label, setLabel] = createSignal("")
+  createEffect(() => {
+    if (labelled()) setLabel(i18n.t(status() === "stranded" ? "ui.message.pending" : "ui.message.steering"))
+  })
 
   const stamp = createMemo(() => timefmt().format(props.message.time.created))
 
@@ -334,6 +322,7 @@ export function CurrentUserMessageDisplay(props: {
   )
 
   const runPose = () => ({
+    label: labelled() ? 1 : 0,
     meta: folded() ? 0 : 1,
     top: meetsAbove() ? 1 : 0,
     bottom: folded() ? 1 : 0,
@@ -347,6 +336,8 @@ export function CurrentUserMessageDisplay(props: {
     () => root,
     runPose,
     (el, value) => {
+      el.style.setProperty("--user-run-label", `${value.label}`)
+      if (value.label === 0 && !labelled()) setLabel("")
       el.style.setProperty("--user-run-meta", `${value.meta}`)
       el.style.setProperty("--user-run-top", `${value.top}`)
       el.style.setProperty("--user-run-bottom", `${value.bottom}`)
@@ -530,16 +521,24 @@ export function CurrentUserMessageDisplay(props: {
       ref={root}
       data-component="user-message"
       data-pending={waiting() ? "true" : undefined}
-      data-pending-leaving={leaving() && !waiting() ? "" : undefined}
       data-run-folded={folded() ? "" : undefined}
       data-run-meta-hidden={restingPose.meta === 0 ? "" : undefined}
       style={{
+        "--user-run-label": `${restingPose.label}`,
         "--user-run-meta": `${restingPose.meta}`,
         "--user-run-top": `${restingPose.top}`,
         "--user-run-bottom": `${restingPose.bottom}`,
       }}
       data-timeline-part-id={props.text ? `${props.message.id}:text:0` : undefined}
     >
+      <Show when={label()}>
+        <div data-slot="user-message-pending-label" class="text-12-regular text-text-weak" aria-hidden={!labelled()}>
+          <span data-slot="user-message-pending" aria-hidden="true">
+            <Icon name="outline-steer" size="small" />
+          </span>
+          {label()}
+        </div>
+      </Show>
       {renderAttachments()}
       <Show
         when={props.text}
@@ -571,42 +570,22 @@ export function CurrentUserMessageDisplay(props: {
       {/* Like the TUI, a pending steer of only attachments still offers its actions. */}
       <Show when={props.text || comments().length > 0 || pending()}>
         <div data-slot="user-message-copy-wrapper">
-          {/* A waiting steer shows only its Pending label; its agent, model, time and actions open on hover. */}
           <span data-slot="user-message-meta-wrap">
             <Show when={metaHead()}>
               <span data-slot="user-message-meta" class="text-12-regular text-text-weak cursor-default">
-                <Show when={pendingLabel()}>
-                  <span data-slot="user-message-pending" aria-hidden="true">
-                    <Icon name="outline-steer" size="small" />
-                  </span>
-                  {pendingLabel()}
-                </Show>
-                <Show when={metaDetail()}>
-                  <span data-slot="user-message-meta-more">
-                    <span>
-                      {pendingLabel() ? "\u00A0\u00B7\u00A0" : ""}
-                      {metaDetail()}
-                    </span>
-                  </span>
-                </Show>
+                {metaHead()}
               </span>
             </Show>
-            <span data-slot="user-message-meta-more" data-tail>
-              <span>
-                <Show when={metaHead() && stamp()}>
-                  <span data-slot="user-message-meta-sep" class="text-12-regular text-text-weak cursor-default">
-                    {"\u00A0\u00B7\u00A0"}
-                  </span>
-                </Show>
-                <span data-slot="user-message-meta-tail" class="text-12-regular text-text-weak cursor-default">
-                  {stamp()}
-                </span>
+            <Show when={metaHead() && stamp()}>
+              <span data-slot="user-message-meta-sep" class="text-12-regular text-text-weak cursor-default">
+                {"\u00A0\u00B7\u00A0"}
               </span>
+            </Show>
+            <span data-slot="user-message-meta-tail" class="text-12-regular text-text-weak cursor-default">
+              {stamp()}
             </span>
           </span>
-          <span data-slot="user-message-meta-more" data-actions>
-            <span>{renderActions()}</span>
-          </span>
+          {renderActions()}
         </div>
       </Show>
     </div>
