@@ -51,11 +51,13 @@ const initialChunk: Plugin = {
   },
 }
 
-export default defineConfig(({ command }) => {
+export default defineConfig(async ({ command }) => {
   const channel = resolveChannel()
   const nodePtyPkg = nodePtyPackage()
+
   // Beta builds carry their commit and recent history for the updater's "What's new in beta"; other channels none.
-  const betaNotes = channel === "beta" ? BetaNotes.embed() : undefined
+  const betaNotes =
+    channel === "beta" ? await BetaNotes.enrich(BetaNotes.embed(), { token: process.env.GITHUB_TOKEN }) : undefined
 
   return {
     main: {

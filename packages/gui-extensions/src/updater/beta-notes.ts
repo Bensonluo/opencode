@@ -11,6 +11,10 @@ const Note = Schema.Struct({
   summary: Schema.String,
   pr: Schema.optional(Schema.Number),
   sha: Schema.String,
+  author: Schema.optional(
+    Schema.Struct({ name: Schema.String, login: Schema.optional(Schema.String), avatar: Schema.optional(Schema.String) }),
+  ),
+  description: Schema.optional(Schema.String),
 })
 
 /** What a beta build embeds (packages/desktop/scripts/beta-notes.ts), newest first. */
@@ -30,9 +34,14 @@ export const decodeEmbeddedNotes = Schema.decodeUnknownOption(Schema.fromJsonStr
 
 export type BetaNote = {
   readonly sha: string
+  readonly type: "feat" | "fix" | "perf"
   readonly summary: string
+  /** A sentence or two from the pull request about what it does. */
+  readonly description?: string
   readonly scope?: string
   readonly pr?: { readonly number: number; readonly url: string }
+  /** Who made it, with GitHub's public avatar when the build could ask GitHub. */
+  readonly author?: { readonly name: string; readonly avatar?: string }
 }
 
 export type BetaNotes = {
@@ -86,8 +95,11 @@ function item(note: typeof Note.Type): BetaNote {
 
   return {
     sha: note.sha,
+    type: note.type,
     summary: summary.charAt(0).toUpperCase() + summary.slice(1),
+    description: note.description,
     scope: note.scope,
     pr: note.pr === undefined ? undefined : { number: note.pr, url: `${REPOSITORY}/pull/${note.pr}` },
+    author: note.author && { name: note.author.name, avatar: note.author.avatar },
   }
 }

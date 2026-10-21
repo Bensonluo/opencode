@@ -1,7 +1,9 @@
-import { For, Show } from "solid-js"
+import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Option } from "effect"
 import { Button } from "@opencode/ui/button"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
+import { enter } from "@opencode/ui/motion"
 import { useExtension, type DialogHandle, type SetupContext } from "../sdk"
 import { betaBuild, decodeEmbeddedNotes, sliceBetaNotes, type BetaNote, type BetaNotes } from "./beta-notes"
 import type definition from "./index"
@@ -43,6 +45,23 @@ export function DialogBetaNotes(props: {
   open: (href: string) => void
 }) {
   const ctx = useExtension<typeof definition>()
+  const [fade, setFade] = createSignal({ top: 0, bottom: 0 })
+  let list!: HTMLDivElement
+
+  // The edges feather by as much as there is left to scroll, so they appear and leave without a jump.
+  const measure = () =>
+    setFade({
+      top: Math.min(FADE, list.scrollTop),
+      bottom: Math.min(FADE, list.scrollHeight - list.clientHeight - list.scrollTop),
+    })
+
+  onMount(() => {
+    measure()
+    createResizeObserver(list, measure)
+    list
+      .querySelectorAll("[data-beta-icon]")
+      .forEach((icon, index) => enter(icon, { scale: 0.6, duration: 320, delay: 120 + Math.min(index, 8) * 40 }))
+  })
 
   return (
     <Dialog fit containerClass="w-[min(calc(100vw-32px),520px)]!">
@@ -52,9 +71,21 @@ export function DialogBetaNotes(props: {
           description={ctx.plural("beta.since", props.notes.total, { build: betaBuild(props.previous) })}
         />
       </DialogHeader>
-      <DialogBody class="max-h-[min(calc(100vh-220px),440px)] !overflow-y-auto gap-4 px-4 pb-1">
-        <Section title={ctx.t("beta.added")} notes={props.notes.added} open={props.open} />
-        <Section title={ctx.t("beta.fixed")} notes={props.notes.fixed} open={props.open} />
+      <DialogBody class="min-h-0">
+        <div
+          ref={list}
+          class="flex max-h-[min(calc(100vh-220px),440px)] flex-col gap-5 overflow-y-auto px-4 pb-2"
+          style={{
+            "mask-image":
+              fade().top || fade().bottom
+                ? `linear-gradient(to bottom, transparent, #000 ${fade().top}px, #000 calc(100% - ${fade().bottom}px), transparent)`
+                : undefined,
+          }}
+          onScroll={measure}
+        >
+          <Section title={ctx.t("beta.added")} notes={props.notes.added} open={props.open} />
+          <Section title={ctx.t("beta.fixed")} notes={props.notes.fixed} open={props.open} />
+        </div>
       </DialogBody>
       <DialogFooter>
         <Show when={props.notes.more}>
@@ -72,41 +103,135 @@ export function DialogBetaNotes(props: {
   )
 }
 
+/** How far the list's edges feather once it scrolls. */
+const FADE = 24
+
 function Section(props: { title: string; notes: readonly BetaNote[]; open: (href: string) => void }) {
   return (
     <Show when={props.notes.length > 0}>
-      <section class="flex flex-col gap-1.5">
+      <section class="flex flex-col gap-2">
         <h2 class="m-0 text-12-medium leading-[var(--line-height-compact)] text-v2-text-text-muted">{props.title}</h2>
-        <ul class="m-0 flex list-none flex-col gap-1 p-0">
+        <ul class="m-0 flex list-none flex-col gap-3.5 p-0">
           <For each={props.notes}>
             {(note) => (
-              <li class="flex min-w-0 items-start gap-2 text-13-regular leading-[var(--line-height-base)] text-v2-text-text-base">
-                <span aria-hidden="true" class="mt-[9px] size-1 shrink-0 rounded-full bg-v2-icon-icon-muted" />
-                <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">
-                  {note.summary}
-                  <Show when={note.scope}>
-                    {(scope) => <span class="ms-1.5 text-12-regular text-v2-text-text-faint">{scope()}</span>}
-                  </Show>
-                  <Show when={note.pr}>
-                    {(pr) => (
-                      <a
-                        href={pr().url}
-                        class="ms-1.5 rounded-[4px] text-12-regular text-v2-text-text-muted underline-offset-2 hover:text-v2-text-text-base hover:underline focus-visible:underline focus-visible:outline-none"
-                        onClick={(event) => {
-                          event.preventDefault()
-                          props.open(pr().url)
-                        }}
-                      >
-                        #{pr().number}
-                      </a>
+              <li class="flex min-w-0 items-start gap-3">
+                <span data-beta-icon aria-hidden="true" class="mt-0.5 flex shrink-0 text-v2-icon-icon-muted">
+                  <KindIcon type={note.type} />
+                </span>
+                <div class="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
+                  <p class="m-0 text-[13px] leading-5 font-[500] tracking-[-0.04px] text-v2-text-text-base">
+                    {note.summary}
+                  </p>
+                  <Show when={note.description}>
+                    {(description) => (
+                      <p class="m-0 text-[13px] leading-5 font-[440] tracking-[-0.04px] text-v2-text-text-muted [text-wrap:pretty]">
+                        {description()}
+                      </p>
                     )}
                   </Show>
-                </span>
+                  <Meta note={note} open={props.open} />
+                </div>
               </li>
             )}
           </For>
         </ul>
       </section>
     </Show>
+  )
+}
+
+/** Who made it, where, and its pull request, quietly. */
+function Meta(props: { note: BetaNote; open: (href: string) => void }) {
+  return (
+    <Show when={props.note.author || props.note.scope || props.note.pr}>
+      <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-4 font-[440] text-v2-text-text-faint">
+        <Show when={props.note.author}>
+          {(author) => (
+            <span class="flex min-w-0 items-center gap-1.5 text-v2-text-text-muted">
+              <Avatar name={author().name} src={author().avatar} />
+              {author().name}
+            </span>
+          )}
+        </Show>
+        <Show when={props.note.scope}>
+          {(scope) => (
+            <>
+              <Show when={props.note.author}>
+                <span aria-hidden="true">·</span>
+              </Show>
+              <span>{scope()}</span>
+            </>
+          )}
+        </Show>
+        <Show when={props.note.pr}>
+          {(pr) => (
+            <>
+              <Show when={props.note.author || props.note.scope}>
+                <span aria-hidden="true">·</span>
+              </Show>
+              <a
+                href={pr().url}
+                class="rounded-[4px] tabular-nums text-v2-text-text-faint underline-offset-2 hover:text-v2-text-text-base hover:underline focus-visible:underline focus-visible:outline-none"
+                onClick={(event) => {
+                  event.preventDefault()
+                  props.open(pr().url)
+                }}
+              >
+                #{pr().number}
+              </a>
+            </>
+          )}
+        </Show>
+      </div>
+    </Show>
+  )
+}
+
+/** The author's initial, which the avatar fades in over once it loads; an avatar that fails leaves the initial. */
+function Avatar(props: { name: string; src?: string }) {
+  const [loaded, setLoaded] = createSignal(false)
+
+  return (
+    <span
+      aria-hidden="true"
+      class="relative grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-v2-background-bg-layer-02 text-[9px] leading-none font-[530] text-v2-text-text-muted uppercase after:absolute after:inset-0 after:rounded-full after:shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)]"
+    >
+      {Array.from(props.name.trim())[0]}
+      <Show when={props.src}>
+        {(src) => (
+          <img
+            src={src()}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            referrerPolicy="no-referrer"
+            class="absolute inset-0 size-full object-cover opacity-0 transition-opacity duration-200 ease-out"
+            classList={{ "opacity-100": loaded() }}
+            onLoad={() => setLoaded(true)}
+          />
+        )}
+      </Show>
+    </span>
+  )
+}
+
+/** New is a sparkle, a fix a check, a speedup a bolt: one 16px outline family. */
+function KindIcon(props: { type: BetaNote["type"] }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linejoin="round">
+      <Switch>
+        <Match when={props.type === "feat"}>
+          <path d="M8 2.5c.4 3.1 2.4 5.1 5.5 5.5-3.1.4-5.1 2.4-5.5 5.5-.4-3.1-2.4-5.1-5.5-5.5 3.1-.4 5.1-2.4 5.5-5.5Z" />
+        </Match>
+        <Match when={props.type === "fix"}>
+          <circle cx="8" cy="8" r="5.5" />
+          <path d="m5.75 8.25 1.5 1.5 3-3.25" stroke-linecap="round" />
+        </Match>
+        <Match when={props.type === "perf"}>
+          <path d="M8.75 2.5 4.5 9h3.25l-.5 4.5L11.5 7H8.25l.5-4.5Z" />
+        </Match>
+      </Switch>
+    </svg>
   )
 }

@@ -40,6 +40,8 @@ permissions:
   packages: write
   # Beta desktop jobs poll this run's artifacts while the CLI builds.
   actions: read
+  # Beta desktop builds read who made each change and what it does for "What's new in beta".
+  pull-requests: read
 
 env:
   OPENCODE_CHANNEL: ${{ (github.ref_name == 'dev' && !inputs.bump && !inputs.version && 'dev') || '' }}
@@ -532,7 +534,8 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then echo "ELECTRON_BUILDER_COMPRESSION_LEVEL=1" >> "$GITHUB_ENV"; fi
 
       # The beta build embeds the subjects of its newest commits for "What's new in beta"
-      # (packages/desktop/scripts/beta-notes.ts). Commits without file contents are enough.
+      # (packages/desktop/scripts/beta-notes.ts), with their pull requests' authors and descriptions from GitHub.
+      # Commits without file contents are enough.
       - name: Fetch beta history (beta)
         if: github.ref_name == 'beta'
         shell: bash
@@ -556,6 +559,7 @@ jobs:
           VITE_SENTRY_ENVIRONMENT: beta
           VITE_SENTRY_RELEASE: desktop@${{ needs.version.outputs.version }}
           OPENCODE_CLI_TARGET: ${{ matrix.settings.target }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Wait for the CLI (beta)
         if: github.ref_name == 'beta'

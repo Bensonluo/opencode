@@ -35,6 +35,8 @@ test("lists the notes after the previous commit, features first, humanized, with
           summary: "disable animated wheel scrolling on linux.",
           pr: 57120,
           sha: short(30),
+          author: { name: "Ada Lovelace", login: "ada", avatar: "https://avatars.githubusercontent.com/u/1?s=48" },
+          description: "Wheel scrolling on Linux no longer glides.",
         },
         { type: "feat", scope: "app", summary: "merge projects across servers", sha: short(29) },
         { type: "perf", summary: "cache the model list", sha: short(28) },
@@ -45,15 +47,18 @@ test("lists the notes after the previous commit, features first, humanized, with
   )
 
   expect(Option.getOrThrow(notes)).toEqual({
-    added: [{ sha: short(29), summary: "Merge projects across servers", scope: "app", pr: undefined }],
+    added: [{ sha: short(29), type: "feat", summary: "Merge projects across servers", scope: "app" }],
     fixed: [
       {
         sha: short(30),
+        type: "fix",
         summary: "Disable animated wheel scrolling on linux",
+        description: "Wheel scrolling on Linux no longer glides.",
         scope: "desktop",
         pr: { number: 57120, url: "https://github.com/anomalyco/opencode/pull/57120" },
+        author: { name: "Ada Lovelace", avatar: "https://avatars.githubusercontent.com/u/1?s=48" },
       },
-      { sha: short(28), summary: "Cache the model list", scope: undefined, pr: undefined },
+      { sha: short(28), type: "perf", summary: "Cache the model list" },
     ],
     total: 3,
     more: undefined,

@@ -84,11 +84,13 @@ test("embeds the build's commit, its history and the notes of its non-merge feat
   expect(embedded.sha).toBe(head)
   expect(embedded.commits).toHaveLength(6)
   expect(embedded.commits[0]).toBe(short(head))
+  const author = { name: "Ada" }
+
   expect(embedded.notes).toEqual([
-    { type: "fix", scope: "app", summary: "side fix", sha: short(side) },
-    { type: "feat", scope: "desktop", summary: "new dialog", sha: short(git.shas[3]!) },
-    { type: "fix", scope: "app", summary: "first fix", pr: 10, sha: short(git.shas[1]!) },
-    { type: "feat", scope: "app", summary: "old feature", sha: short(git.shas[0]!) },
+    { type: "fix", scope: "app", summary: "side fix", sha: short(side), author },
+    { type: "feat", scope: "desktop", summary: "new dialog", sha: short(git.shas[3]!), author },
+    { type: "fix", scope: "app", summary: "first fix", pr: 10, sha: short(git.shas[1]!), author },
+    { type: "feat", scope: "app", summary: "old feature", sha: short(git.shas[0]!), author },
   ])
 })
 
@@ -100,4 +102,125 @@ test("embeds at most the newest 200 commits", async () => {
   expect(embedded.commits).toHaveLength(200)
   expect(embedded.notes[0]?.summary).toBe("fix 204")
   expect(embedded.notes.at(-1)?.summary).toBe("fix 5")
+})
+
+const TEMPLATE = `### Issue for this PR
+
+Closes #1
+
+### Type of change
+
+- [x] Bug fix
+
+### What does this PR do?
+
+Keep the composer's last line visible. Shift+Enter now scrolls far enough to clear the [fade](https://example.com).
+A third sentence is left out.
+
+### How did you verify your code works?
+
+Tests.`
+
+test.each([
+  [
+    "the template's What does this PR do? section",
+    TEMPLATE,
+    "Keep the composer's last line visible. Shift+Enter now scrolls far enough to clear the fade.",
+  ],
+  [
+    "a Summary list's first item",
+    "## Summary\n- Restore the **standard** border (`composer.tsx`).\n- Keep the row.",
+    "Restore the standard border.",
+  ],
+  [
+    "the text before the first heading",
+    "Home showed a loading state.\n\n### Changes\n\n- Cache the list.",
+    "Home showed a loading state.",
+  ],
+  [
+    "a Changes section when nothing comes first",
+    "### Why\n\nIt was slow.\n\n### Changes\n\nThe list stays cached.",
+    "The list stays cached.",
+  ],
+  [
+    "nothing that introduces a code block",
+    "### What does this PR do?\n\nThe query was:\n\n```sql\nSELECT 1\n```",
+    undefined,
+  ],
+  ["nothing that repeats the subject", "Fix the thing.", undefined],
+  ["nothing too long to read at a glance", "A".repeat(241), undefined],
+  ["nothing from an empty body", "", undefined],
+])("describes %s", (_, body, expected) => {
+  expect(BetaNotes.describe(body, "fix the thing")).toBe(expected)
+})
+
+const notes = (): ReturnType<typeof BetaNotes.embed> => ({
+  sha: "a".repeat(40),
+  commits: ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
+  notes: [
+    { type: "fix", summary: "keep the last line visible", pr: 10, sha: "aaaaaaaaaaaa", author: { name: "Ada" } },
+    { type: "feat", summary: "local change", sha: "bbbbbbbbbbbb", author: { name: "Ada" } },
+  ],
+})
+
+test("adds each pull request's author and description from one GitHub query", async () => {
+  const requests: RequestInit[] = []
+
+  const enriched = await BetaNotes.enrich(notes(), {
+    token: "token",
+    fetch: async (_, init) => {
+      requests.push(init)
+
+      return Response.json({
+        data: {
+          repository: {
+            pr10: {
+              number: 10,
+              body: TEMPLATE,
+              author: {
+                login: "ada",
+                name: "Ada Lovelace",
+                avatarUrl: "https://avatars.githubusercontent.com/u/1?s=48",
+              },
+            },
+          },
+        },
+      })
+    },
+  })
+
+  expect(requests).toHaveLength(1)
+  expect(enriched.notes).toEqual([
+    {
+      ...notes().notes[0]!,
+      author: { name: "Ada Lovelace", login: "ada", avatar: "https://avatars.githubusercontent.com/u/1?s=48" },
+      description: "Keep the composer's last line visible. Shift+Enter now scrolls far enough to clear the fade.",
+    },
+    notes().notes[1],
+  ])
+})
+
+test("keeps only GitHub's public avatars, and the login when there is no name", async () => {
+  const enriched = await BetaNotes.enrich(notes(), {
+    token: "token",
+    fetch: async () =>
+      Response.json({
+        data: {
+          repository: {
+            pr10: { number: 10, body: "", author: { login: "bot", avatarUrl: "http://example.com/a.png" } },
+          },
+        },
+      }),
+  })
+
+  expect(enriched.notes[0]?.author).toEqual({ name: "bot", login: "bot" })
+})
+
+test.each([
+  ["no token", undefined, async () => Response.json({})],
+  ["a failed request", "token", async () => new Response("rate limited", { status: 403 })],
+  ["a network error", "token", async () => Promise.reject(new Error("offline"))],
+  ["an unexpected response", "token", async () => Response.json({ errors: [{ message: "bad" }] })],
+])("keeps the commit authors and subjects with %s", async (_, token, request) => {
+  expect(await BetaNotes.enrich(notes(), { token, fetch: request })).toEqual(notes())
 })
