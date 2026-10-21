@@ -126,6 +126,126 @@ story("keeps Markdown sanitization and link protections after Mermaid renders", 
   expect(result.afterInvalid).toBe(result.before)
 })
 
+for (const cached of [false, true]) {
+  story(`decorates known inline paths before insertion with cached Markdown ${cached}`, async ({ page }) => {
+    const initial = await page.evaluate(
+      async ({ fixture, cached }) => {
+        const { mountMarkdown } = await import(fixture)
+
+        return mountMarkdown({
+          text: "`src/file.ts` and `src/file.ts` and `missing.ts` and [`src/file.ts`](https://example.com)",
+          cached,
+          synchronousFiles: true,
+        })
+      },
+      { fixture, cached },
+    )
+
+    expect(initial).toEqual([
+      { text: "src/file.ts", kind: "path" },
+      { text: "src/file.ts", kind: "path" },
+      { text: "missing.ts", kind: null },
+      { text: "src/file.ts", kind: null },
+    ])
+  })
+}
+
+story("does not report completed Markdown ready until all inline path checks settle", async ({ page }) => {
+  const checks = await page.evaluateHandle(async (fixture) => {
+    const { mountMarkdown } = await import(fixture)
+    const existing = Promise.withResolvers<boolean>()
+    const missing = Promise.withResolvers<boolean>()
+    const requested: string[] = []
+    await mountMarkdown({
+      text: "`src/file.ts` and `src/file.ts` and `missing/file.ts`",
+      localFileExists: (path: string) => {
+        requested.push(path)
+
+        return path === "src/file.ts" ? existing.promise : missing.promise
+      },
+    })
+
+    return { requested, existing: () => existing.resolve(true), missing: () => missing.reject(new Error("Offline")) }
+  }, fixture)
+
+  const markdown = page.getByTestId("markdown-fixture").locator('[data-component="markdown"]')
+  await expect(markdown.locator("code")).toHaveCount(3)
+  expect(await checks.evaluate((state) => state.requested)).toEqual(["src/file.ts", "missing/file.ts"])
+  await expect(markdown).not.toHaveAttribute("data-markdown-ready")
+  await checks.evaluate((state) => state.existing())
+  await expect(markdown.locator('code[data-inline-code-kind="path"]')).toHaveCount(2)
+  await expect(markdown).not.toHaveAttribute("data-markdown-ready")
+  await checks.evaluate((state) => state.missing())
+  await expect(markdown).toHaveAttribute("data-markdown-ready", "")
+  await expect(markdown.getByText("missing/file.ts", { exact: true })).not.toHaveAttribute("data-inline-code-kind")
+  await checks.dispose()
+})
+
+story("ignores stale inline path results when completed Markdown is replaced", async ({ page }) => {
+  const checks = await page.evaluateHandle(async (fixture) => {
+    const { mountMarkdown } = await import(fixture)
+    const first = Promise.withResolvers<boolean>()
+    const next = Promise.withResolvers<boolean>()
+    const requested: string[] = []
+    await mountMarkdown({
+      text: "Before `src/file.ts`",
+      cached: true,
+      localFileExists: (path: string) => {
+        requested.push(path)
+
+        return requested.length === 1 ? first.promise : next.promise
+      },
+    })
+
+    return { requested, first: () => first.resolve(true), next: () => next.resolve(false) }
+  }, fixture)
+
+  const harness = page.getByTestId("markdown-fixture")
+  const markdown = harness.locator('[data-component="markdown"]')
+  await expect(markdown.locator("p")).toHaveText("Before src/file.ts")
+  await expect(markdown).not.toHaveAttribute("data-markdown-ready")
+  await harness.getByLabel("Markdown text").fill("Replacement `src/file.ts`")
+  await expect(markdown.locator("p")).toHaveText("Replacement src/file.ts")
+  expect(await checks.evaluate((state) => state.requested)).toEqual(["src/file.ts", "src/file.ts"])
+  await checks.evaluate((state) => state.first())
+  await expect(markdown).not.toHaveAttribute("data-markdown-ready")
+  await checks.evaluate((state) => state.next())
+  await expect(markdown).toHaveAttribute("data-markdown-ready", "")
+  await expect(markdown.locator('code[data-inline-code-kind="path"]')).toHaveCount(0)
+  await checks.dispose()
+})
+
+story("keeps streaming Markdown ready while a completed prefix waits for a path check", async ({ page }) => {
+  const checks = await page.evaluateHandle(async (fixture) => {
+    const { mountMarkdown } = await import(fixture)
+    const existing = Promise.withResolvers<boolean>()
+    const requested: string[] = []
+    await mountMarkdown({
+      text: "Completed `src/file.ts`.\n\nStreaming **answer**",
+      streaming: true,
+      localFileExists: (path: string) => {
+        requested.push(path)
+
+        return existing.promise
+      },
+    })
+
+    return { requested, resolve: () => existing.resolve(true) }
+  }, fixture)
+
+  const harness = page.getByTestId("markdown-fixture")
+  const markdown = harness.locator('[data-component="markdown"]')
+  await expect(markdown.locator("strong")).toHaveText("answer")
+  await expect(markdown).toHaveAttribute("data-markdown-ready", "")
+  expect(await checks.evaluate((state) => state.requested)).toEqual(["src/file.ts"])
+  await harness.getByLabel("Streaming").uncheck()
+  await expect(markdown).not.toHaveAttribute("data-markdown-ready")
+  await checks.evaluate((state) => state.resolve())
+  await expect(markdown).toHaveAttribute("data-markdown-ready", "")
+  await expect(markdown.locator('code[data-inline-code-kind="path"]')).toHaveText("src/file.ts")
+  await checks.dispose()
+})
+
 story("mounts cached completed Markdown with sanitized HTML and decorations", async ({ page }) => {
   await page.evaluate(
     async ({ fixture, text }) => {
@@ -200,9 +320,9 @@ story("shows a stable GitHub mark without changing link text or other sites", as
   expect(await mark.evaluate((icon) => getComputedStyle(icon, "::before").width)).toBe("14px")
   expect(await mark.evaluate((icon) => getComputedStyle(icon, "::before").maskImage)).toContain("data:image/svg+xml")
   await expect(mark.locator("img")).toHaveCount(0)
-  await expect(markdown.getByRole("link", { name: "GitHub" }).locator(".markdown-link-favicon[data-github]")).toHaveCount(
-    1,
-  )
+  await expect(
+    markdown.getByRole("link", { name: "GitHub" }).locator(".markdown-link-favicon[data-github]"),
+  ).toHaveCount(1)
 
   for (const name of ["other site", "lookalike"]) {
     await expect(markdown.getByRole("link", { name }).locator(".markdown-link-favicon[data-github]")).toHaveCount(0)
@@ -545,7 +665,13 @@ story("renders the trailing chunk while the stream is paused", async ({ page }) 
 story("keeps live elements and selection when a stream completes and later changes", async ({ page }) => {
   await page.evaluate(async (fixture) => {
     const { mountMarkdown } = await import(fixture)
-    await mountMarkdown({ text: "Hello **world**", streaming: true, cached: true, prepared: true })
+    await mountMarkdown({
+      text: "Hello **world**",
+      streaming: true,
+      cached: true,
+      prepared: true,
+      synchronousFiles: true,
+    })
   }, fixture)
   const harness = page.getByTestId("markdown-fixture")
   const markdown = harness.locator('[data-component="markdown"]')
@@ -581,8 +707,9 @@ story("keeps live elements and selection when a stream completes and later chang
   await expect(paragraph).toHaveAttribute("data-retained", "true")
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("world")
   await expect(markdown.locator('[data-markdown-word][data-retained="true"]')).toHaveText("again")
-  await harness.getByLabel("Markdown text").fill("Changed **content**")
-  await expect(paragraph).toHaveText("Changed content")
+  await harness.getByLabel("Markdown text").fill("Changed **content** in `new/file.ts` and `new/file.ts`")
+  await expect(paragraph).toHaveText("Changed content in new/file.ts and new/file.ts")
+  await expect(markdown.locator('code[data-inline-code-kind="path"]')).toHaveText(["new/file.ts", "new/file.ts"])
   await expect(paragraph).toHaveAttribute("data-retained", "true")
   await expect(markdown.locator("[data-markdown-word]")).toHaveCount(0)
   await harness.getByRole("button", { name: "Toggle Markdown" }).click()

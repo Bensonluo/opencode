@@ -249,7 +249,6 @@ function SessionScreenContent(props: {
           setVisibleRef={timeline.view.setVisibleRef}
           anchor={timeline.view.anchor}
           setRevealMessage={timeline.view.setRevealMessage}
-          onRevealTurn={timeline.actions.revealTurn}
           setRevealPart={timeline.view.setRevealPart}
           reveal={timeline.view.reveal}
           setScrollToEnd={timeline.view.setScrollToEnd}
@@ -300,6 +299,12 @@ function SessionScreenContent(props: {
             project={location.project()}
             directory={location.directory()}
             compact={!!session.data.info()?.parentID}
+            context={{
+              get session() {
+                return props.view()
+              },
+              screen: props.screen,
+            }}
           />
         </div>
       </Show>

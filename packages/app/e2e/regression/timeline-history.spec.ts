@@ -1,18 +1,16 @@
 import type { SessionMessageAssistant, SessionMessageInfo } from "@opencode/client/promise"
 import { expect, test, type Page } from "@playwright/test"
-import { pageMessagesFrom, sessionHref } from "../utils/app"
+import { sessionHref } from "../utils/app"
 import { trackPageErrors } from "../utils/errors"
 import { fixture, installTimelineSettings, mockStressTimeline } from "../utils/session-fixture"
 import {
   assistantMessage,
   messageUpdated,
-  renderedPartID,
   sessionID,
   setupTimeline,
   status,
   textPart,
   userMessage,
-  userText,
 } from "../utils/timeline"
 import { expectSessionTitle } from "../utils/waits"
 
@@ -69,203 +67,6 @@ test.describe("timeline history", () => {
     // The older page has landed above the visible rows.
     await expect.poll(() => scroller.evaluate((element) => element.scrollHeight)).toBeGreaterThan(height)
     await expect.poll(positions).toEqual(before)
-  })
-
-  test("navigates every turn, highlights visible turns, and previews unloaded replies on hover", async ({ page }) => {
-    const replies = [
-      "Response number 0\n\nEarlier reply remains visible.\n\nMore of the same reply.",
-      ["Response number 1", ...Array.from({ length: 45 }, () => "A long reply for the reading-only fallback.")].join(
-        "\n\n",
-      ),
-    ]
-
-    const messages = Array.from({ length: 40 }, (_, index) => {
-      const value = String(index).padStart(4, "0")
-      const id = `msg_0${value}_turn_a_user`
-
-      return [
-        userMessage(
-          [
-            userText(
-              index === 39
-                ? ["Prompt number 39", ...Array.from({ length: 40 }, () => "Long tail prompt content.")].join("\n\n")
-                : `Prompt number ${index}`,
-              { id: `prt_0${value}_turn_prompt` },
-            ),
-          ],
-          { id, created: 1690000000000 + index * 10_000 },
-        ),
-        assistantMessage(
-          [{ id: `prt_0${value}_turn_text`, type: "text", text: replies[index] ?? `Response number ${index}` }],
-          {
-            id: `msg_0${value}_turn_b_assistant`,
-            parentID: id,
-            created: 1690000001000 + index * 10_000,
-          },
-        ),
-      ]
-    }).flat()
-
-    const loads: (string | undefined)[] = []
-    await setupTimeline(page, {
-      sessionMessages: messages,
-      pageMessages: pageMessagesFrom({ [sessionID]: messages }),
-      settings: { showTurnNavigator: true },
-      inbox: [
-        {
-          id: "msg_99999_queued_user",
-          sessionID,
-          type: "user",
-          time: { created: 1690000500000 },
-          delivery: "queue",
-          payload: { text: "Queued prompt", files: [], agents: [] },
-        },
-      ],
-      onMessages: (request) => {
-        if (request.phase === "start") loads.push(request.before)
-      },
-    })
-
-    const navigator = page.locator('[data-component="session-turn-navigator"]')
-    const turns = navigator.locator("[data-turn]")
-    const preview = navigator.locator('[data-slot="session-turn-navigator-preview"]')
-    // The index lists every transcript turn, not queued input, without paging the transcript.
-    await expect(turns).toHaveCount(40)
-    expect(loads).toEqual([undefined])
-
-    await turns.nth(39).hover()
-    await expect(preview).toContainText("Prompt number 39")
-    await expect(preview).toContainText("Response number 39")
-
-    // An unloaded turn fetches only its own latest reply, not the transcript around it.
-    await turns.nth(0).hover()
-    await expect(preview).toContainText("Prompt number 0")
-    await expect(preview).toContainText("Response number 0")
-    await expect(preview).not.toContainText("Response number 1")
-    expect(loads).toEqual([undefined])
-
-    const activeIndexes = () =>
-      navigator
-        .locator('[data-state="active"]')
-        .evaluateAll((elements) => elements.map((el) => Number(el.getAttribute("data-index"))))
-
-    await turns.nth(0).click()
-    await expect(page.locator("#message-msg_00000_turn_a_user")).toBeInViewport()
-    await timelineScroller(page).hover()
-    await expect(page.locator("#message-msg_00001_turn_a_user")).toBeInViewport()
-    await expect.poll(activeIndexes).toEqual([0, 1])
-
-    // The 48px header and floating composer delimit which prompts are actually visible.
-    await page.setViewportSize({ width: 820, height: 500 })
-    await turns.nth(0).click()
-    const firstPrompt = page.locator('#message-msg_00000_turn_a_user [data-slot="user-message-text"]')
-    const secondPrompt = page.locator('#message-msg_00001_turn_a_user [data-slot="user-message-text"]')
-    const visibleArea = page.locator('[data-slot="session-timeline-visible"]')
-    await expect
-      .poll(async () => {
-        const prompt = await firstPrompt.boundingBox()
-        const area = await visibleArea.boundingBox()
-
-        return !!prompt && !!area && prompt.y >= area.y + 48 && prompt.y + prompt.height <= area.y + area.height
-      })
-      .toBe(true)
-    await expect
-      .poll(async () => {
-        const prompt = await secondPrompt.boundingBox()
-        const area = await visibleArea.boundingBox()
-
-        return !!prompt && !!area && prompt.y >= area.y + area.height
-      })
-      .toBe(true)
-    await expect.poll(activeIndexes).toEqual([0])
-    await page.setViewportSize({ width: 1400, height: 900 })
-    await turns.nth(0).click()
-    await expect.poll(activeIndexes).toEqual([0, 1])
-
-    // A reply-only turn is not highlighted while a different prompt remains visible.
-    const replyID = renderedPartID("prt_00000_turn_text")
-    await timelineScroller(page).evaluate((scroller, id) => {
-      const reply = scroller.querySelector(`[data-timeline-part-id="${id}"]`)
-
-      if (!reply) throw new Error("Expected the first reply")
-      scroller.scrollTop += reply.getBoundingClientRect().top - scroller.getBoundingClientRect().top
-    }, replyID)
-    await expect(page.locator("#message-msg_00000_turn_a_user")).not.toBeInViewport()
-    await expect(page.locator(`[data-timeline-part-id="${replyID}"]`)).toBeInViewport()
-    await expect.poll(activeIndexes).toEqual([1])
-
-    // With no bubbles visible, the preceding turn alone stays highlighted.
-    const longReplyID = renderedPartID("prt_00001_turn_text")
-    const longReply = page.locator(`[data-timeline-part-id="${longReplyID}"]`)
-    await expect
-      .poll(() => longReply.evaluate((element) => element.getBoundingClientRect().height))
-      .toBeGreaterThan(await timelineScroller(page).evaluate((element) => element.clientHeight))
-    await timelineScroller(page).evaluate((scroller, id) => {
-      const reply = scroller.querySelector(`[data-timeline-part-id="${id}"]`)
-
-      if (!reply) throw new Error("Expected the long reply")
-      scroller.scrollTop += reply.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 120
-    }, longReplyID)
-    await expect(page.locator("#message-msg_00001_turn_a_user")).not.toBeInViewport()
-    await expect(page.locator("#message-msg_00002_turn_a_user")).not.toBeInViewport()
-    await expect(longReply).toBeInViewport()
-    await expect.poll(activeIndexes).toEqual([1])
-
-    // Clicking a long prompt (>1024 chars, non-immediate render) keeps active emphasis while hovered.
-    await turns.nth(39).click()
-    await expect(page.locator("#message-msg_00039_turn_a_user")).toBeInViewport()
-    await expect(turns.nth(39)).toHaveAttribute("data-state", "active")
-    expect(loads.length).toBeGreaterThan(1)
-  })
-
-  test("keeps the turn rail in timeline order, with one preview of each turn's own reply", async ({ page }) => {
-    // Other clients mint IDs that do not sort by time, like the iOS app's uppercase UUIDs.
-    const turnID = (index: number) =>
-      [5, 30].includes(index) ? `msg_F${index}_ios_user` : `msg_0${String(index).padStart(4, "0")}_turn_a_user`
-
-    const messages = Array.from({ length: 40 }, (_, index) => [
-      userMessage([userText(`Prompt number ${index}`, { id: `prt_${index}_prompt` })], {
-        id: turnID(index),
-        created: 1690000000000 + index * 10_000,
-      }),
-      assistantMessage([{ id: `prt_${index}_reply`, type: "text", text: `Response number ${index}` }], {
-        id: `msg_0${String(index).padStart(4, "0")}_turn_b_assistant`,
-        parentID: turnID(index),
-        created: 1690000001000 + index * 10_000,
-      }),
-    ]).flat()
-
-    await setupTimeline(page, {
-      sessionMessages: messages,
-      pageMessages: pageMessagesFrom({ [sessionID]: messages }),
-      settings: { showTurnNavigator: true },
-    })
-    const navigator = page.locator('[data-component="session-turn-navigator"]')
-    const turns = navigator.locator("[data-turn]")
-    const preview = navigator.locator('[data-slot="session-turn-navigator-preview"]')
-    await expect(turns).toHaveCount(40)
-
-    // An unloaded turn previews its prompt, then its own reply, once each.
-    await turns.nth(5).hover()
-    await expect(preview.locator("p")).toHaveText(["Prompt number 5", "Response number 5"])
-    await turns.nth(5).click()
-    await expect(page.locator(`#message-${turnID(5)}`)).toBeInViewport()
-
-    // Scrolling closes the preview; moving on opens a single one for the turn under the pointer.
-    await turns.nth(20).hover()
-    await expect(preview).toBeVisible()
-    await page.mouse.wheel(0, -300)
-    await expect(preview).toBeHidden()
-    await turns.nth(30).hover()
-    await expect(preview.locator("p")).toHaveText(["Prompt number 30", "Response number 30"])
-    await expect(page.locator('[data-slot="session-turn-navigator-preview"]')).toHaveCount(1)
-
-    // The last tick is the latest turn.
-    await turns.nth(39).hover()
-    await expect(preview.locator("p")).toHaveText(["Prompt number 39", "Response number 39"])
-    await turns.nth(39).click()
-    await expect(page.locator(`#message-${turnID(39)}`)).toBeInViewport()
-    await expect(page.locator(`#message-${turnID(5)}`)).not.toBeInViewport()
   })
 
   test("mounts every part once and in order while paging to the start", async ({ page }) => {
@@ -354,8 +155,6 @@ test.describe("timeline history", () => {
       const timeline = await setupTimeline(page, {
         sessionMessages: messages,
         sessionStatus: { [sessionID]: { type: "busy" } },
-        // The turn rail reads the transcript through its own index, which would land in the exact page log below.
-        settings: { showTurnNavigator: false },
         viewport: { width: 646, height: 1385 },
         beforeMessagesResponse: (request) => (request.before ? history.promise : Promise.resolve()),
         onMessages: (request) => {

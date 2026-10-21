@@ -1,6 +1,6 @@
 import { createMemo, For, Show } from "solid-js"
-import { syncSpinPhase } from "@opencode/ui/hooks"
 import { Icon } from "@opencode/ui/icon"
+import { Spinner } from "@opencode/ui/spinner"
 import { TitlebarItem } from "@opencode/gui-extensions/sdk"
 import { useExtensionHost } from "./host"
 
@@ -73,7 +73,7 @@ function TitlebarItemButton(props: { item: TitlebarItem; vertical?: boolean }) {
         >
           <Show
             when={!props.item.busy}
-            fallback={<span ref={syncSpinPhase} data-slot="titlebar-update-loader" aria-hidden="true" />}
+            fallback={<Spinner class="m-px size-3" aria-hidden="true" />}
           >
             <Show
               when={props.item.icon}

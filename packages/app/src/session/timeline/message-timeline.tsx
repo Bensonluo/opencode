@@ -1,17 +1,11 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-  onCleanup,
-  Show,
-  type Accessor,
-  type JSX,
-} from "solid-js"
+import { createEffect, createMemo, createSignal, on, onCleanup, Show, type Accessor, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Predicate } from "effect"
 import type { SessionUserActions } from "@opencode/session-ui/actions"
 import { Button } from "@opencode/ui/button"
+import { Icon } from "@opencode/ui/icon"
+import { IconButton } from "@opencode/ui/icon-button"
+import { Menu } from "@opencode/ui/menu"
 import { InlineInput } from "@opencode/ui/inline-input"
 import { Keybind } from "@opencode/ui/keybind"
 import { TextShimmer } from "@opencode/ui/text-shimmer"
@@ -25,14 +19,12 @@ import { createSessionTimelineRowRenderer } from "@opencode/session-ui/timeline/
 import { getReadyMarkdown, preloadMarkdown } from "@opencode/session-ui/markdown-cache"
 import { createTimelineController, type TimelineController, type TimelineSessionSource } from "./controller"
 import { createTimelineVirtualizer } from "./virtualizer"
-import { TurnNavigator } from "./turn-navigator"
 import { containsDirectory } from "@opencode/util/path"
 import { isWorkspaceDirectory } from "@/workspaces/paths"
 import { parseCommentNote, readPromptPresentation } from "@/composer/comment-note"
 import { parseVoiceDelegation } from "./voice-delegation"
 import { useCommand } from "@/shell/commands/command"
 import { useExtensionScoped } from "@/runtime/extension/commands"
-import { useSettings } from "@/settings/model"
 import {
   SessionAncestorTrail,
   SessionHeaderLayout,
@@ -97,7 +89,6 @@ type MessageTimelineProps = {
   setVisibleRef?: (el: HTMLDivElement | undefined) => void
   anchor: (id: string) => string
   setRevealMessage?: (fn: (id: string, partID?: string) => void) => void
-  onRevealTurn?: (id: string) => Promise<void>
   setRevealPart?: (fn: (target: string) => boolean) => void
   setScrollToEnd?: (fn: (behavior?: ScrollBehavior) => void) => void
   reveal?: { target: () => string | undefined; done: () => void }
@@ -148,7 +139,6 @@ function MessageTimelineView(
   const language = useLanguage()
   const command = useCommand()
   const extensionScoped = useExtensionScoped()
-  const settings = useSettings()
   const server = useServer()
   const data = server.ctx.data
   const sdk = useWorkspaceLocation()
@@ -327,6 +317,8 @@ function MessageTimelineView(
   const [title, setTitle] = createStore({
     draft: "",
     editing: false,
+    menuOpen: false,
+    pendingRename: false,
   })
 
   let titleRef: HTMLInputElement | undefined
@@ -338,6 +330,8 @@ function MessageTimelineView(
         setTitle({
           draft: "",
           editing: false,
+          menuOpen: false,
+          pendingRename: false,
         }),
       { defer: true },
     ),
@@ -393,7 +387,7 @@ function MessageTimelineView(
 
   createEffect(() => {
     if (props.active !== false) return
-    setTitle({ draft: "", editing: false })
+    setTitle({ draft: "", editing: false, menuOpen: false, pendingRename: false })
   })
 
   const rowRenderer = createSessionTimelineRowRenderer({
@@ -426,7 +420,11 @@ function MessageTimelineView(
   // Live status sits in its own timeline row at the end of the active turn, growing and leaving on the shared row
   // spring and handing over to the reply's copy button when the turn completes.
   function ActivityLane() {
-    const hint = createStatusFade(() => !!backgroundHintPartID(), () => undefined, 1000)
+    const hint = createStatusFade(
+      () => !!backgroundHintPartID(),
+      () => undefined,
+      1000,
+    )
 
     return (
       <div
@@ -456,28 +454,8 @@ function MessageTimelineView(
     )
   }
 
-  const turnMessages = createMemo(() =>
-    props.session.history.messages().filter((message) => projection.messageRowIndex().has(message.id)),
-  )
-
   return (
     <VirtualizedTimeline
-      navigator={
-        <Show when={settings.general.showTurnNavigator() && props.onRevealTurn && sessionID()} keyed>
-          {(id) => (
-            <TurnNavigator
-              sessionID={id}
-              messages={turnMessages}
-              complete={() => !data.session.message.more(id)}
-              historyLoading={() => data.session.message.loading(id)}
-              assistantMessagesByParent={projection.assistantMessagesByParent}
-              revertMessageID={() => props.session.data.info()?.revert?.messageID}
-              visibleUserMessageIDs={virtualized.visibleUserMessageIDs}
-              onSelect={(turn) => void props.onRevealTurn?.(turn).catch(() => undefined)}
-            />
-          )}
-        </Show>
-      }
       deferred={(row) => {
         if (!Predicate.isTagged(row, "AssistantPart") || row.group.type !== "part") return false
         const content = Timeline.resolveContent(messageByID().get(row.group.ref.messageID), row.group.ref.partID)
@@ -503,6 +481,14 @@ function MessageTimelineView(
                     directory={sessionDirectory()}
                     compact={!!parentID()}
                     trailing={!!(parentID() || childTitle() || title.editing)}
+                    context={{
+                      get session() {
+                        return props.view
+                      },
+                      get screen() {
+                        return props.screen
+                      },
+                    }}
                   />
                   <Show when={parentID()}>
                     {(id) => (
@@ -604,6 +590,54 @@ function MessageTimelineView(
                     onBlur={() => void saveTitleEditor()}
                   />
                 </Show>
+              </Show>
+              <Show when={!parentID() && sessionID()} keyed>
+                {(id) => (
+                  <Menu
+                    gutter={6}
+                    placement="bottom-start"
+                    open={title.menuOpen}
+                    onOpenChange={(open) => setTitle("menuOpen", open)}
+                  >
+                    <Menu.Trigger
+                      as={IconButton}
+                      icon={<Icon name="outline-dots" />}
+                      variant="ghost-muted"
+                      size="large"
+                      class="shrink-0"
+                      aria-label={language.t("common.moreOptions")}
+                      aria-expanded={title.menuOpen}
+                    />
+                    <Menu.Portal>
+                      <Menu.Content
+                        class="session-options-menu w-max"
+                        style={{ "min-width": "0" }}
+                        onCloseAutoFocus={(event) => {
+                          if (!title.pendingRename) return
+                          event.preventDefault()
+                          setTitle("pendingRename", false)
+                          openTitleEditor()
+                        }}
+                      >
+                        <Menu.Item
+                          onSelect={() => {
+                            setTitle("pendingRename", true)
+                            setTitle("menuOpen", false)
+                          }}
+                        >
+                          {language.t("common.rename")}
+                        </Menu.Item>
+                        <Menu.Item onSelect={() => void props.action.export(id)}>
+                          {language.t("common.export")}…
+                        </Menu.Item>
+                        <Menu.Separator />
+                        <Menu.Item onSelect={() => props.action.showDelete(id)}>
+                          {language.t("common.delete")}…
+                        </Menu.Item>
+                      </Menu.Content>
+                    </Menu.Portal>
+                  </Menu>
+                )}
               </Show>
             </SessionHeaderLayout>
           </SessionTitleHeader>
