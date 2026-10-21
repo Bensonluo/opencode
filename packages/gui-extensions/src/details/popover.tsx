@@ -2,6 +2,7 @@ import { Popover } from "@kobalte/core/popover"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { Keybind } from "@opencode/ui/keybind"
+import { ScrollView } from "@opencode/ui/scroll-view"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { onCleanup, Show, Suspense, type Component, type ParentProps } from "solid-js"
 import { Command, createVisitState, useExtension, type MountedSession } from "../sdk"
@@ -88,10 +89,12 @@ function DetailsPopover(
       </Tooltip>
       <Popover.Portal>
         <Popover.Content
-          class="session-summary-popover z-50 max-h-[calc(100dvh-96px)] overflow-y-auto border-0 bg-transparent p-1 outline-none"
+          class="session-summary-popover z-50 flex max-h-[calc(100dvh-96px)] flex-col overflow-hidden border-0 bg-transparent outline-none"
           aria-label={ctx.t("title")}
         >
-          {props.children}
+          <ScrollView focusable={false}>
+            <div class="p-1">{props.children}</div>
+          </ScrollView>
         </Popover.Content>
       </Popover.Portal>
     </Popover>

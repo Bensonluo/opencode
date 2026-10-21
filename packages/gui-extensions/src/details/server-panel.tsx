@@ -4,6 +4,7 @@ import { Button } from "@opencode/ui/button"
 import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { ErrorDetails } from "@opencode/ui/error-details"
 import { Icon } from "@opencode/ui/icon"
+import { ScrollView } from "@opencode/ui/scroll-view"
 import { Switch } from "@opencode/ui/switch"
 import { showToast } from "@opencode/ui/toast"
 import { Tooltip } from "@opencode/ui/tooltip"
@@ -480,7 +481,9 @@ function ServicePopover(props: ServiceMenuProps & ServiceBodyProps & { empty: bo
             if (content instanceof HTMLElement) setTimeout(() => content.focus({ preventScroll: true }))
           }}
         >
-          <ServiceBody {...props} />
+          <ScrollView focusable={false}>
+            <ServiceBody {...props} />
+          </ScrollView>
         </Popover.Content>
       </Popover.Portal>
     </Popover>

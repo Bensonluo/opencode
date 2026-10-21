@@ -4,6 +4,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { Menu } from "@opencode/ui/menu"
+import { ScrollView } from "@opencode/ui/scroll-view"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ServerConnection } from "@/runtime/server/registry"
@@ -65,18 +66,20 @@ export function RecentlyClosedTabsMenu(props: {
         </Menu.Context.Trigger>
       </Show>
       <Menu.Context.Portal>
-        <Menu.Context.Content class="max-h-[66.667dvh] w-56 max-w-56 overflow-y-auto">
-          <Menu.Group>
-            <Menu.GroupLabel>{language.t("home.recentlyClosed")}</Menu.GroupLabel>
-            <For each={recent()}>
-              {(entry) => (
-                <RecentlyClosedTabItem
-                  entry={entry}
-                  onSelect={() => tabs.reopenClosedTab(entry.tab, { append: true })}
-                />
-              )}
-            </For>
-          </Menu.Group>
+        <Menu.Context.Content class="max-h-[66.667dvh] w-56 max-w-56 overflow-hidden">
+          <ScrollView focusable={false}>
+            <Menu.Group>
+              <Menu.GroupLabel>{language.t("home.recentlyClosed")}</Menu.GroupLabel>
+              <For each={recent()}>
+                {(entry) => (
+                  <RecentlyClosedTabItem
+                    entry={entry}
+                    onSelect={() => tabs.reopenClosedTab(entry.tab, { append: true })}
+                  />
+                )}
+              </For>
+            </Menu.Group>
+          </ScrollView>
         </Menu.Context.Content>
       </Menu.Context.Portal>
     </Menu.Context>
