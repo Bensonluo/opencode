@@ -18,7 +18,7 @@ const Note = Schema.Struct({
     }),
   ),
   description: Schema.optional(Schema.String),
-  visual: Schema.optional(Schema.String),
+  visual: Schema.optional(Schema.Struct({ animated: Schema.String, still: Schema.String })),
 })
 
 /** What a beta build embeds (packages/desktop/scripts/beta-notes.ts), newest first. */
@@ -43,7 +43,7 @@ export type BetaNote = {
   /** A sentence or two from the pull request about what it does, read out for its visual. */
   readonly description?: string
   /** A small looping SVG of the change, from the pull request's "### Visual", sanitized at build time. */
-  readonly visual?: string
+  readonly visual?: { readonly animated: string; readonly still: string }
   readonly pr?: { readonly number: number; readonly url: string }
   /** Who made it, with GitHub's public avatar when the build could ask GitHub. */
   readonly author?: { readonly name: string; readonly avatar?: string }
@@ -97,13 +97,12 @@ export function betaBuild(version: string) {
 
 /**
  * A visual as an image source. An image never runs scripts or loads anything, and does not inherit the page's colour, so
- * `color` sets its currentColor. `still` drops its animations, leaving the first frame, for reduced motion.
+ * `color` sets its currentColor. Reduced motion uses the still copy the build made without the animations.
  */
-export function visualSource(svg: string, input: { color: string; still: boolean }) {
-  const source = input.still ? svg.replace(/<(animate\w*|set)\b[^>]*?(\/>|>[\s\S]*?<\/\1\s*>)/gi, "") : svg
-  const style = `svg{color:${input.color}}${input.still ? "*{animation:none!important;transition:none!important}" : ""}`
+export function visualSource(visual: NonNullable<BetaNote["visual"]>, input: { color: string; still: boolean }) {
+  const svg = input.still ? visual.still : visual.animated
 
-  return `data:image/svg+xml,${encodeURIComponent(source.replace(/<svg\b[^>]*>/i, (open) => `${open}<style>${style}</style>`))}`
+  return `data:image/svg+xml,${encodeURIComponent(svg.replace(/<svg\b[^>]*>/i, (open) => `${open}<style>svg{color:${input.color}}</style>`))}`
 }
 
 function item(note: typeof Note.Type): BetaNote {

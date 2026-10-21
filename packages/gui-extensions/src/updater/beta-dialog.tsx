@@ -134,7 +134,7 @@ function Section(props: { title: string; notes: readonly BetaNote[]; open: (href
                   <p class="m-0 text-[13px] leading-5 font-[500] tracking-[-0.04px] text-v2-text-text-base">
                     {note.summary}
                   </p>
-                  <Show when={note.visual}>{(svg) => <Visual svg={svg()} label={note.description} />}</Show>
+                  <Show when={note.visual}>{(visual) => <Visual visual={visual()} label={note.description} />}</Show>
                   <Meta note={note} open={props.open} />
                 </div>
               </li>
@@ -147,7 +147,7 @@ function Section(props: { title: string; notes: readonly BetaNote[]; open: (href
 }
 
 /** What changed, drawn: the pull request's looping SVG, only ever as an image, in the dialog's icon colour. */
-function Visual(props: { svg: string; label?: string }) {
+function Visual(props: { visual: NonNullable<BetaNote["visual"]>; label?: string }) {
   const [color, setColor] = createSignal<string>()
   let frame!: HTMLSpanElement
 
@@ -161,7 +161,7 @@ function Visual(props: { svg: string; label?: string }) {
       <Show when={color()}>
         {(value) => (
           <img
-            src={visualSource(props.svg, { color: value(), still: prefersReducedMotion() })}
+            src={visualSource(props.visual, { color: value(), still: prefersReducedMotion() })}
             alt={props.label ?? ""}
             width="240"
             height="72"

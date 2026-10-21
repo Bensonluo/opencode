@@ -101,14 +101,17 @@ test.each([
   expect(betaBuild(version)).toBe(build)
 })
 
-const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72"><rect fill="currentColor"><animate attributeName="width" values="4;8" dur="1s"/></rect><set attributeName="x" to="1"/></svg>`
+test("sources a visual with the page's colour, and its still copy for reduced motion", () => {
+  const visual = {
+    animated: '<svg viewBox="0 0 240 72"><rect><animate/></rect></svg>',
+    still: '<svg viewBox="0 0 240 72"><rect/></svg>',
+  }
 
-test("sources a visual with the page's colour, and a still frame for reduced motion", () => {
   const source = (still: boolean) =>
-    decodeURIComponent(visualSource(SVG, { color: "rgb(1, 2, 3)", still }).replace("data:image/svg+xml,", ""))
+    decodeURIComponent(visualSource(visual, { color: "rgb(1, 2, 3)", still }).replace("data:image/svg+xml,", ""))
 
-  expect(source(false)).toBe(SVG.replace('240 72">', '240 72"><style>svg{color:rgb(1, 2, 3)}</style>'))
-  expect(source(true)).toBe(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72"><style>svg{color:rgb(1, 2, 3)}*{animation:none!important;transition:none!important}</style><rect fill="currentColor"></rect></svg>`,
+  expect(source(false)).toBe(
+    '<svg viewBox="0 0 240 72"><style>svg{color:rgb(1, 2, 3)}</style><rect><animate/></rect></svg>',
   )
+  expect(source(true)).toBe('<svg viewBox="0 0 240 72"><style>svg{color:rgb(1, 2, 3)}</style><rect/></svg>')
 })

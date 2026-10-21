@@ -7,6 +7,7 @@ export * as BetaNotes from "./beta-notes"
 
 import { execFileSync } from "node:child_process"
 import { Option, Schema } from "effect"
+import { BetaVisual } from "./beta-visual"
 
 export type BetaNote = {
   type: "feat" | "fix" | "perf"
@@ -19,8 +20,8 @@ export type BetaNote = {
   author?: { name: string; login?: string; avatar?: string }
   /** A sentence or two from the pull request's description of what it does. */
   description?: string
-  /** The pull request's "### Visual": a small looping SVG of the change, sanitized. */
-  visual?: string
+  /** The pull request's "### Visual": a small looping SVG of the change, rebuilt, and its still for reduced motion. */
+  visual?: { animated: string; still: string }
 }
 
 /** How many commits of history a build carries. A previous build further back shows the newest notes instead. */
@@ -42,9 +43,6 @@ const BATCH = 100
 
 /** A description longer than this reads as a wall of text in the dialog, so it is cut to fit. */
 const DESCRIPTION = 240
-
-/** The most bytes a visual may take, after sanitizing. */
-const VISUAL = 8 * 1024
 
 /**
  * Reads the commit `head` resolves to (GITHUB_SHA in CI) and its newest commits, newest first: every commit's short
@@ -183,9 +181,8 @@ export function describe(body: string, summary: string) {
 }
 
 /**
- * The ```svg block under a pull request's "### Visual" heading, sanitized for an <img>: comments, scripts, foreign
- * objects, event handlers and external references go, and anything that is not one root <svg> of at most 8 KB is
- * refused. The dialog only ever shows it as an image, where scripts never run; this keeps the embedded copy clean too.
+ * The ```svg block under a pull request's "### Visual" heading, rebuilt from an allowlist (beta-visual.ts) as an
+ * animated and a still copy. The dialog only ever shows it as an image, where scripts never run.
  */
 export function visual(body: string) {
   const lines = body.split(/\r?\n/)
@@ -197,26 +194,7 @@ export function visual(body: string) {
   const end = rest.findIndex((line) => /^#{1,6}\s/.test(line.trim()))
   const block = (end === -1 ? rest : rest.slice(0, end)).join("\n").match(/```svg[^\n]*\n([\s\S]*?)\n\s*```/)?.[1]
 
-  if (!block) return undefined
-
-  const svg = block
-    .replace(/<\?xml[^>]*\?>|<!--[\s\S]*?-->/g, "")
-    .replace(/<(script|foreignObject)\b[\s\S]*?<\/\1\s*>|<(script|foreignObject)\b[^>]*\/>/gi, "")
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s(xlink:)?href\s*=\s*("(?!#)[^"]*"|'(?!#)[^']*'|[^\s>"'#][^\s>]*)/gi, "")
-    .replace(/url\(\s*(?!['"]?#)[^)]*\)/gi, "none")
-    .trim()
-
-  if (!/^<svg[\s>]/i.test(svg) || !/<\/svg>$/i.test(svg)) return undefined
-
-  // Whatever the patterns above could not take apart is refused rather than repaired.
-  if (/<(script|foreignObject)\b|<!(doctype|entity)|@import|javascript:|\son[a-z]+\s*=/i.test(svg)) return undefined
-
-  const rooted = /^<svg[^>]*\sxmlns=/i.test(svg)
-    ? svg
-    : svg.replace(/^<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"')
-
-  return new TextEncoder().encode(rooted).length <= VISUAL ? rooted : undefined
+  return block ? BetaVisual.sanitize(block) : undefined
 }
 
 /** Lines of the PR template that say nothing about the change, whether a heading, a label or a filler answer. */

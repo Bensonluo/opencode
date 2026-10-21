@@ -244,25 +244,53 @@ const SVG = `<svg viewBox="0 0 240 72"><rect width="40" height="8" fill="current
 const withVisual = (svg: string) =>
   `### What does this PR do?\n\nIt grows.\n\n### Visual\n\n\`\`\`svg\n${svg}\n\`\`\`\n\n### Checklist`
 
-test.each([
-  [
-    "a visual, with its namespace added",
-    withVisual(SVG),
-    SVG.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"'),
-  ],
-  [
-    "scripts, foreign objects, handlers and external references stripped",
+test("rebuilds a visual with its namespace, and a still without its animation", () => {
+  expect(BetaNotes.visual(withVisual(SVG))).toEqual({
+    animated: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72"><rect width="40" height="8" fill="currentColor"><animate attributeName="width" values="40;80;40" dur="3s" repeatCount="indefinite"/></rect></svg>`,
+    still: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72"><rect width="40" height="8" fill="currentColor"/></svg>`,
+  })
+})
+
+test("drops scripts, foreign objects, images, handlers, outside links and SMIL that animates a link", () => {
+  const rebuilt = BetaNotes.visual(
     withVisual(
-      `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(1)</script><foreignObject><div/></foreignObject><use href="https://example.com/a.svg#x"/><use href="#x"/><rect style="fill:url(https://example.com/p)" onclick='x()'/></svg>`,
+      `<svg onload="alert(1)"><!-- note --><script>alert(1)</script><foreignObject><div/></foreignObject><image href="https://example.com/a.png"/><use xlink:href="https://example.com/a.svg#x"/><use xlink:href="#x"/><rect onclick="x()"/><animate attributeName="href" values="https://example.com"/><set attributeName="xlink:href" to="https://example.com"/></svg>`,
     ),
-    `<svg xmlns="http://www.w3.org/2000/svg"><use/><use href="#x"/><rect style="fill:none"/></svg>`,
+  )
+
+  expect(rebuilt?.animated).toBe(`<svg xmlns="http://www.w3.org/2000/svg"><use/><use href="#x"/><rect/></svg>`)
+})
+
+test("drops a still's keyframes and animations, even important or inline ones", () => {
+  const rebuilt = BetaNotes.visual(
+    withVisual(
+      `<svg><style><![CDATA[.a{fill:red;animation:spin 1s infinite!important}@keyframes spin{from{opacity:0}to{opacity:1}}@media (min-width:1px){.b{transition:opacity 1s}}]]></style><rect class="a" style="animation: spin 1s !important; stroke: blue"/></svg>`,
+    ),
+  )
+
+  expect(rebuilt?.still).toBe(
+    `<svg xmlns="http://www.w3.org/2000/svg"><style>.a{fill:red}@media (min-width:1px){.b{}}</style><rect class="a" style="stroke: blue"/></svg>`,
+  )
+  expect(rebuilt?.animated).toContain("@keyframes spin")
+})
+
+test.each([
+  ["no Visual section", "### What does this PR do?\n\n```svg\n<svg></svg>\n```"],
+  ["a root that is not an svg", withVisual("<div><svg></svg></div>")],
+  ["more than one svg root", withVisual("<svg></svg><svg></svg>")],
+  ["a doctype", withVisual('<!DOCTYPE svg [<!ENTITY x "y">]><svg></svg>')],
+  ["an @import", withVisual('<svg><style>@import "https://example.com/a.css";</style></svg>')],
+  ["a CSS-escaped @import", withVisual('<svg><style>@\\69mport "https://example.com/a.css";</style></svg>')],
+  ["a CSS-escaped url()", withVisual('<svg><rect style="fill:u\\72l(https://example.com/p)"/></svg>')],
+  ["an outside url() in an attribute", withVisual('<svg><rect fill="url(https://example.com/p)"/></svg>')],
+  [
+    "an outside url() in an animation",
+    withVisual('<svg><animate attributeName="fill" to="url(https://example.com/p)"/></svg>'),
   ],
-  ["nothing without a Visual section", "### What does this PR do?\n\n```svg\n<svg></svg>\n```", undefined],
-  ["nothing that is not one root svg", withVisual("<div><svg></svg></div>"), undefined],
-  ["nothing with an unclosed script", withVisual("<svg><script>alert(1)</svg>"), undefined],
-  ["nothing over 8 KB", withVisual(`<svg>${"<rect/>".repeat(1200)}</svg>`), undefined],
-])("takes %s", (_, body, expected) => {
-  expect(BetaNotes.visual(body)).toBe(expected)
+  ["an entity-encoded url()", withVisual('<svg><rect fill="&#117;rl(https://example.com/p)"/></svg>')],
+  ["more than 8 KB", withVisual(`<svg>${'<rect width="1"/>'.repeat(600)}</svg>`)],
+])("refuses a visual with %s", (_, body) => {
+  expect(BetaNotes.visual(body)).toBeUndefined()
 })
 
 test("keeps the visual's code out of the description", () => {
