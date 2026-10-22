@@ -52,7 +52,6 @@ const Options = Schema.Struct({
   user: Schema.optional(Schema.String),
 })
 export type OptionsInput = typeof Options.Type
-const decodeOptions = ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))
 
 const ToolCall = Schema.Struct({
   ...OpenAIChat.OpenAIChatAssistantToolCall.fields,
@@ -161,7 +160,7 @@ const MARKER = "__ENCRYPTED_REASONING__"
 // ---------------------------------------------------------------------------
 
 const fromRequest = Effect.fn("VeniceChat.fromRequest")(function* (request: LLMRequest) {
-  const options = yield* decodeOptions(request.providerOptions ?? {})
+  const options = yield* ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))(request.providerOptions ?? {})
   const body = yield* OpenAIChat.fromRequest(request, {
     cacheControl: cacheControl(),
     assistant: (source, message) => {

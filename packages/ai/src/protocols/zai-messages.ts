@@ -12,14 +12,13 @@ const Options = Schema.Struct({
   ),
 })
 export type OptionsInput = typeof Options.Type
-const decodeOptions = ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))
 const Body = Schema.Struct({
   ...AnthropicMessages.AnthropicMessagesBody.fields,
   thinking: Options.fields.thinking,
 })
 
 const fromRequest = Effect.fn("ZAIMessages.fromRequest")(function* (request: LLMRequest) {
-  const options = yield* decodeOptions(request.providerOptions ?? {})
+  const options = yield* ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))(request.providerOptions ?? {})
   // Z.AI accepts enabled thinking without Anthropic's mandatory token budget.
   const body = yield* AnthropicMessages.protocol.body.from(
     LLMRequest.update(request, {

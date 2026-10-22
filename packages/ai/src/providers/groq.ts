@@ -2,26 +2,23 @@ import { Effect, Schema } from "effect"
 import type { ProviderPackage } from "../provider-package.js"
 import { OpenAIChat } from "../protocols/openai-chat.js"
 import { ProviderShared } from "../protocols/shared.js"
-import { OpenResponsesOptions } from "../protocols/utils/open-responses-options.js"
 import { AuthOptions, type ProviderAuthOption } from "../route/auth-options.js"
 import { Route, type RouteDefaultsInput } from "../route/client.js"
 import { Endpoint } from "../route/endpoint.js"
 import { Protocol } from "../route/protocol.js"
 import { ProviderID, type ModelID, type LLMRequest } from "../schema/index.js"
+import type { OpenAIProviderOptionsInput } from "./openai-options.js"
 
 export const id = ProviderID.make("groq")
 const baseURL = "https://api.groq.com/openai/v1"
 
-const Options = Schema.Struct({
-  reasoningEffort: Schema.optional(OpenResponsesOptions.ReasoningEffort),
+export type ProviderOptions = Pick<OpenAIProviderOptionsInput, "reasoningEffort"> & {
   /** Controls visible reasoning on GPT-OSS; other models always use parsed reasoning. */
-  includeReasoning: Schema.optional(Schema.Boolean),
-  parallelToolCalls: Schema.optional(Schema.Boolean),
-  serviceTier: Schema.optional(ProviderShared.knownString<"on_demand" | "flex" | "auto" | "performance">()),
-  user: Schema.optional(Schema.String),
-})
-export type ProviderOptions = typeof Options.Type
-const decodeOptions = ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))
+  readonly includeReasoning?: boolean
+  readonly parallelToolCalls?: boolean
+  readonly serviceTier?: "on_demand" | "flex" | "auto" | "performance" | (string & {})
+  readonly user?: string
+}
 
 export type LanguageModelOptions = Omit<RouteDefaultsInput, "providerOptions"> &
   ProviderAuthOption<"optional"> & {
@@ -35,19 +32,28 @@ export type Settings = ProviderPackage.Settings &
     readonly baseURL?: string
   }
 
+const Options = Schema.Struct({
+  includeReasoning: Schema.optional(Schema.Boolean),
+  parallelToolCalls: Schema.optional(Schema.Boolean),
+  serviceTier: Schema.optional(Schema.String),
+  user: Schema.optional(Schema.String),
+})
+
 export const protocol = Protocol.make({
   id: "groq-chat",
   body: {
     schema: Schema.Struct({
       ...OpenAIChat.bodyFields,
       reasoning_format: Schema.optional(Schema.Literal("parsed")),
-      include_reasoning: Options.fields.includeReasoning,
-      parallel_tool_calls: Options.fields.parallelToolCalls,
-      service_tier: Options.fields.serviceTier,
-      user: Options.fields.user,
+      include_reasoning: Schema.optional(Schema.Boolean),
+      parallel_tool_calls: Schema.optional(Schema.Boolean),
+      service_tier: Schema.optional(Schema.String),
+      user: Schema.optional(Schema.String),
     }),
     from: Effect.fn("Groq.fromRequest")(function* (request: LLMRequest) {
-      const options = yield* decodeOptions(request.providerOptions ?? {})
+      const options = yield* ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))(
+        request.providerOptions ?? {},
+      )
       const gptOSS = request.model.id.startsWith("openai/gpt-oss-")
       return {
         ...(yield* OpenAIChat.fromRequest(request)),

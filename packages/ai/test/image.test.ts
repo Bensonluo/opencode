@@ -17,7 +17,7 @@ describe("Image", () => {
         Effect.gen(function* () {
           const error = yield* Image.generate({ model, prompt: "hello" }).pipe(Effect.flip)
           expect(error.reason._tag).toBe("InvalidProviderOutput")
-          expect(error.message).toMatch(/invalid (response|stream event)/)
+          expect(error.message).toContain("invalid response")
           expect(error.reason.body).toBe(body)
           expect(error.reason.http).toMatchObject({ status: 200, headers: { "x-image-trace": "trace-1" } })
           expect(error.reason.http?.url).toStartWith("https://image.test/")

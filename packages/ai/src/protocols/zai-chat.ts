@@ -25,7 +25,6 @@ const Options = Schema.Struct({
   userID: Schema.optional(Schema.String),
 })
 export type OptionsInput = typeof Options.Type
-const decodeOptions = ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))
 
 const Body = Schema.Struct({
   ...OpenAIChat.bodyFields,
@@ -43,7 +42,7 @@ const supportsToolStreaming = (modelID: string) => {
 }
 
 const fromRequest = Effect.fn("ZAIChat.fromRequest")(function* (request: LLMRequest) {
-  const options = yield* decodeOptions(request.providerOptions ?? {})
+  const options = yield* ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))(request.providerOptions ?? {})
   const body = yield* OpenAIChat.protocol.body.from(request)
   return {
     ...body,
