@@ -47,4 +47,4 @@ jobs:
           $script = @'
           ${{ inputs.wsl }}
           '@
-          $script | wsl -d Ubuntu bash -s
+          ($script -replace "`r", "") | wsl -d Ubuntu bash -s
