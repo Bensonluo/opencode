@@ -1,0 +1,50 @@
+name: win-repro
+# Windows/WSL reproduction runner for Windows-only issue verification.
+# Trigger manually: gh workflow run win-repro.yml -r dev -f ref=<branch> -f pwsh=<script> -f wsl=<script>
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (branch) of Bensonluo/opencode to test'
+        required: false
+        default: 'dev'
+      pwsh:
+        description: 'PowerShell script to run on Windows (optional)'
+        required: false
+        default: ''
+      wsl:
+        description: 'Bash script to run inside WSL2 Ubuntu (optional)'
+        required: false
+        default: ''
+
+jobs:
+  repro:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout ref
+        if: ${{ inputs.ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Run PowerShell repro
+        if: ${{ inputs.pwsh != '' }}
+        shell: pwsh
+        run: ${{ inputs.pwsh }}
+
+      - name: Install WSL2 Ubuntu
+        if: ${{ inputs.wsl != '' }}
+        shell: pwsh
+        run: |
+          wsl --install -d Ubuntu --no-launch
+          wsl --list --verbose
+
+      - name: Run WSL repro
+        if: ${{ inputs.wsl != '' }}
+        shell: pwsh
+        run: |
+          $script = @'
+          ${{ inputs.wsl }}
+          '@
+          $script | wsl -d Ubuntu bash -s
