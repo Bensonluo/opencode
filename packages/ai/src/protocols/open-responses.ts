@@ -149,7 +149,6 @@ export const HostedToolItem = Schema.Union([
   OpenResponsesMCPCall,
 ])
 export type HostedToolItem = Schema.Schema.Type<typeof HostedToolItem>
-const isHostedToolItem = Schema.is(HostedToolItem)
 
 // `function_call_output.output` accepts either a plain string or an ordered
 // array of content items so tools can return images and files in addition to text.
@@ -703,7 +702,7 @@ const lowerMessages = Effect.fnUntraced(function* (
           const hosted =
             part.result.type !== "json"
               ? undefined
-              : isHostedToolItem(part.result.value)
+              : Schema.is(HostedToolItem)(part.result.value)
                 ? part.result.value
                 : adapter.restoreHostedToolItem?.(part.result.value)
           if (id !== undefined && hosted?.id === id) {

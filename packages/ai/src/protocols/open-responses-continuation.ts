@@ -54,11 +54,9 @@ const canonical = (value: unknown): string => {
     .join(",")}}`
 }
 
-const decodeJson = Schema.decodeUnknownOption(ProviderShared.Json)
-
 const json = (value: unknown) => {
   if (typeof value !== "string") return value
-  return Option.getOrElse(decodeJson(value), () => value)
+  return Option.getOrElse(Schema.decodeUnknownOption(ProviderShared.Json)(value), () => value)
 }
 
 const comparable = (value: unknown) => {
