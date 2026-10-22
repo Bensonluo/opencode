@@ -16,6 +16,7 @@ import path from "node:path"
 import type { Database as SQLiteDatabase } from "bun:sqlite"
 import { Project } from "@opencode/schema/project"
 import { Agent } from "@opencode/schema/agent"
+import { Model } from "@opencode/schema/model"
 
 export type SourceMessage = {
   readonly id: string
@@ -477,7 +478,7 @@ export function transformSession(input: TransformInput): TransformResult {
           ? {
               id: latestUser.value.model.modelID,
               providerID: latestUser.value.model.providerID,
-              variant: latestUser.value.model.variant ?? "default",
+              variant: Model.VariantID.make(latestUser.value.model.variant ?? "default"),
             }
           : null),
       cost: assistants.reduce((total, item) => total + item.cost, 0),
