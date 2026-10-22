@@ -20,6 +20,7 @@ const chip = motionTuning.choice("activity.chip", {
 const corners = motionTuning.choice("activity.chip.corners", {
   label: en["experiment.chipCorners"],
   group: "Experiments",
+  when: () => chip() === "orb",
   value: "capsule",
   labels: { capsule: en["experiment.chipCorners.capsule"], composer: en["experiment.chipCorners.composer"] },
 })
