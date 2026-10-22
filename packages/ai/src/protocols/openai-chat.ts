@@ -64,7 +64,8 @@ type OpenAIChatTool = Schema.Schema.Type<typeof OpenAIChatTool>
 const ExtraContent = Schema.Struct({
   google: Schema.Struct({ thought_signature: Schema.String }),
 })
-const decodeExtraContent = (value: unknown) => Option.getOrUndefined(Schema.decodeUnknownOption(ExtraContent)(value))
+const decodeExtraContentSchema = Schema.decodeUnknownOption(ExtraContent)
+const decodeExtraContent = (value: unknown) => Option.getOrUndefined(decodeExtraContentSchema(value))
 
 export const OpenAIChatAssistantToolCall = Schema.Struct({
   id: Schema.String,
@@ -577,7 +578,7 @@ const lowerMessages = Effect.fnUntraced(function* (request: LLMRequest, options:
   const mistral = ["mistral", "devstral", "codestral", "pixtral", "mixtral"].some((family) => modelID.includes(family))
   const lowering = {
     ...options,
-    providerMetadataKey: request.model.route.providerMetadataKey ?? String(request.model.provider),
+    providerMetadataKey: request.model.route.providerMetadataKey ?? request.model.provider,
     toolCallID: (id: string) => {
       if (mistral)
         return id
@@ -783,7 +784,7 @@ export const fromRequest = Effect.fn("OpenAIChat.fromRequest")(function* (
     )
   const generation = request.generation
   const flattened = ProviderShared.flattenToolRequest(request)
-  const provider = String(request.model.provider)
+  const provider = request.model.provider
   const baseURL = request.model.route.endpoint.baseURL
   const detectedMaxTokensField = detectMaxTokensField(provider, baseURL)
   const maxTokensField = request.model.compatibility?.maxTokensField ?? detectedMaxTokensField
@@ -1252,7 +1253,7 @@ export const protocol = Protocol.make({
   stream: {
     event: OpenAIChatStreamEvent,
     initial: (request) => ({
-      providerMetadataKey: request.model.route.providerMetadataKey ?? String(request.model.provider),
+      providerMetadataKey: request.model.route.providerMetadataKey ?? request.model.provider,
       tools: ToolStream.empty<number>(),
       pendingTools: {},
       toolCallEvents: [],

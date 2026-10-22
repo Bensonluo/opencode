@@ -22,6 +22,7 @@ import { MediaInput } from "./utils/media-input.js"
 import { ToolStream } from "./utils/tool-stream.js"
 
 const ADAPTER = "google-interactions"
+const GOOGLE_PROVIDER_ID = ProviderID.make("google")
 export const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 // =============================================================================
@@ -223,7 +224,7 @@ const mediaContent = Effect.fnUntraced(function* (asset: Media.Asset) {
     )
   const type: (typeof MediaContent.Type)["type"] =
     asset.kind === "image" || asset.kind === "audio" || asset.kind === "video" ? asset.kind : "document"
-  const uri = MediaInput.refID(asset, ProviderID.make("google"))
+  const uri = MediaInput.refID(asset, GOOGLE_PROVIDER_ID)
   if (uri !== undefined) return { type, uri, mime_type: asset.mediaType }
   const inline = yield* ProviderShared.requireInlineMedia("Google Interactions", asset)
   return { type, data: inline.base64, mime_type: inline.mime }
@@ -236,7 +237,7 @@ const signature = (metadata: ProviderMetadata | undefined, key: string) => {
 
 const lowerMessages = Effect.fnUntraced(function* (request: LLMRequest) {
   const steps: InputStep[] = []
-  const key = request.model.route.providerMetadataKey ?? String(request.model.provider)
+  const key = request.model.route.providerMetadataKey ?? request.model.provider
   for (const message of request.messages) {
     if (message.role === "system") {
       const part = yield* ProviderShared.wrappedSystemUpdate("Google Interactions", message)
@@ -562,7 +563,7 @@ export const protocol = Protocol.make({
     event: Protocol.jsonEvent(Event),
     initial: (request): ParserState => ({
       route: `${request.model.provider}/${ADAPTER}`,
-      metadataKey: request.model.route.providerMetadataKey ?? String(request.model.provider),
+      metadataKey: request.model.route.providerMetadataKey ?? request.model.provider,
       lifecycle: Lifecycle.initial(),
       steps: {},
       tools: ToolStream.empty<number>(),

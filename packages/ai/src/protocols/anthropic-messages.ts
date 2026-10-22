@@ -53,7 +53,6 @@ const SSE_EVENTS = new Set([
 ])
 export const framing = Framing.sseEvents(SSE_EVENTS)
 
-export type ThinkingBlockBinding = typeof AnthropicThinkingBlockBinding.Type
 export type ThinkingInput = typeof Thinking.Encoded
 /** Caller-facing provider options; unknown keys are accepted and ignored. `Options.Type` is the wire-ready form. */
 export type OptionsInput = ProviderOptions & typeof Options.Encoded
@@ -228,6 +227,7 @@ const AnthropicCompactionBlock = Schema.Struct({
   type: Schema.Literal("compaction"),
   content: Schema.NullOr(Schema.String),
 })
+const decodeAnthropicCompactionBlock = Schema.decodeUnknownOption(AnthropicCompactionBlock)
 const AnthropicAssistantBlock = Schema.Union([
   AnthropicCompactionBlock,
   AnthropicTextBlock,
@@ -818,7 +818,7 @@ const requireThinkingSignature = (request: LLMRequest) => {
 
 // Opus 4.8 and every Claude 5 model accept mid-conversation system messages; later versions inherit support.
 const supportsNativeSystemUpdates = (request: LLMRequest) => {
-  const version = claudeVersion(String(request.model.id))
+  const version = claudeVersion(request.model.id)
   if (version === undefined) return false
   if (version.family === "opus" && version.major === 4) return version.minor >= 8
   return version.major >= 5
@@ -871,7 +871,7 @@ const appendToUserTurn = (messages: AnthropicMessage[], block: AnthropicUserBloc
 
 const lowerMessages = Effect.fnUntraced(function* (request: LLMRequest, breakpoints: Cache.Breakpoints) {
   const messages: AnthropicMessage[] = []
-  const providerMetadataKey = request.model.route.providerMetadataKey ?? String(request.model.provider)
+  const providerMetadataKey = request.model.route.providerMetadataKey ?? request.model.provider
   // Text updates stay where they are unless a user turn follows them; then they move after the latest
   // user turn, the nearest spot where Anthropic accepts a native system message.
   const holdUpdates = supportsNativeSystemUpdates(request)
@@ -1544,7 +1544,7 @@ const step = (state: ParserState, event: AnthropicEvent) => {
     if (!ProviderShared.isRecord(event.content_block) || typeof event.content_block.type !== "string")
       return invalidStreamEvent(event)
     if (event.content_block.type === "compaction") {
-      const decoded = Schema.decodeUnknownOption(AnthropicCompactionBlock)(event.content_block)
+      const decoded = decodeAnthropicCompactionBlock(event.content_block)
       if (event.index === undefined || Option.isNone(decoded)) return invalidStreamEvent(event)
       return Effect.succeed<StepResult>([
         { ...state, compactions: { ...state.compactions, [event.index]: decoded.value.content } },
@@ -1602,7 +1602,7 @@ export const protocol = Protocol.make({
     initial: (request) => ({
       provider: request.model.provider,
       compactions: {},
-      providerMetadataKey: request.model.route.providerMetadataKey ?? String(request.model.provider),
+      providerMetadataKey: request.model.route.providerMetadataKey ?? request.model.provider,
       tools: ToolStream.empty<number>(),
       reasoningSignatures: {},
       lifecycle: Lifecycle.initial(),
