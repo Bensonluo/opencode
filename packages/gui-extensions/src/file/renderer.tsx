@@ -341,6 +341,8 @@ const setup: Setup<typeof File> = (ctx) => {
     },
     close(input) {
       tabs.get(input.screen)?.delete(input.tab.id)
+
+      if (isFileTab(input.tab.id)) input.screen.file.unwatch(fileTabPath(input.screen.file, input.tab.id))
     },
     render: (props) => {
       const panel = usePanel()

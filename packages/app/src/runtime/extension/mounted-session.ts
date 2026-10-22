@@ -93,7 +93,11 @@ export function createMountedSession(session: SessionModel) {
     absolute: file.absolute,
     get: file.get,
     missing: file.notFound,
-    sync: (path, options) => file.load(path, options),
+    sync: (path, options) => {
+      file.watch(path)
+      return file.load(path, options)
+    },
+    unwatch: file.unwatch,
     exists: file.exists,
     search: (query, options) =>
       options?.kind === "any" ? file.searchFilesAndDirectories(query, options) : file.searchFiles(query, options),

@@ -193,7 +193,7 @@ export interface Files {
    */
   missing(path: string): boolean
   /**
-   * Loads the file's content, once unless forced.
+   * Loads the file's content, once unless forced, and asks the server to watch a workspace file for changes.
    *
    * @param path - A workspace path.
    * @param options - Load options.
@@ -207,6 +207,12 @@ export interface Files {
       readonly silent?: boolean
     },
   ): Promise<void>
+  /**
+   * Stops the server watch `sync` started, for a file whose tab closed.
+   *
+   * @param path - A workspace path.
+   */
+  unwatch(path: string): void
   /**
    * Whether a file exists, checked by listing its directory without reading the file.
    *
