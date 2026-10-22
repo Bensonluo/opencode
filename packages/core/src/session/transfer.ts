@@ -43,8 +43,6 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionTransfer") {}
 
-const encodeMessage = Schema.encodeSync(SessionMessage.Info)
-
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -53,6 +51,7 @@ const layer = Layer.effect(
     const { db } = yield* Database.Service
     const projects = yield* Project.Service
     const sessions = yield* Session.Service
+    const encodeMessage = Schema.encodeSync(SessionMessage.Info)
 
     return Service.of({
       export: Effect.fn("SessionTransfer.export")(function* (input) {

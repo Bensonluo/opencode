@@ -36,9 +36,6 @@ const DeviceError = Schema.Struct({
   error_description: Schema.optional(Schema.String),
 })
 const decodeDeviceError = Schema.decodeUnknownOption(Schema.fromJsonString(DeviceError))
-const decodeTokenClaims = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Struct({ exp: Schema.optional(Schema.Number) })),
-)
 
 const device = (app: App.Info) =>
   ({
@@ -218,7 +215,9 @@ function tokenExpiration(tokens: Token) {
   if (tokens.expires_in) return Date.now() + positiveSeconds(tokens.expires_in, 3600) * 1000
   const payload = tokens.access_token.split(".")[1]
   if (!payload) return Date.now() + 3600 * 1000
-  const claims = decodeTokenClaims(Buffer.from(payload, "base64url").toString())
+  const claims = Schema.decodeUnknownOption(
+    Schema.fromJsonString(Schema.Struct({ exp: Schema.optional(Schema.Number) })),
+  )(Buffer.from(payload, "base64url").toString())
   const expiration = Option.getOrUndefined(claims)?.exp
   return expiration ? expiration * 1000 : Date.now() + 3600 * 1000
 }
