@@ -1,9 +1,9 @@
-import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createSignal, For, onMount, Show } from "solid-js"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Option } from "effect"
 import { Button } from "@opencode/ui/button"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
-import { enter, prefersReducedMotion } from "@opencode/ui/motion"
+import { prefersReducedMotion } from "@opencode/ui/motion"
 import { useExtension, type DialogHandle, type SetupContext } from "../sdk"
 import {
   betaBuild,
@@ -65,10 +65,6 @@ export function DialogBetaNotes(props: {
   onMount(() => {
     measure()
     createResizeObserver(list, measure)
-    list
-      .querySelectorAll("[data-beta-icon]")
-      // A quick settle as the dialog opens: every icon is in place within 150 ms, and reduced motion skips it.
-      .forEach((icon, index) => enter(icon, { scale: 0.9, duration: 110, delay: Math.min(index, 4) * 10 }))
   })
 
   return (
@@ -82,7 +78,7 @@ export function DialogBetaNotes(props: {
       <DialogBody class="min-h-0">
         <div
           ref={list}
-          class="flex max-h-[min(calc(100vh-220px),440px)] flex-col gap-5 overflow-y-auto px-4 pb-2"
+          class="flex max-h-[min(calc(100vh-220px),440px)] flex-col gap-6 overflow-y-auto px-4 pb-2"
           style={{
             "mask-image":
               fade().top || fade().bottom
@@ -98,7 +94,7 @@ export function DialogBetaNotes(props: {
       <DialogFooter>
         <Show when={props.notes.more}>
           {(href) => (
-            <Button type="button" variant="ghost" class="me-auto" onClick={() => props.open(href())}>
+            <Button type="button" variant="ghost" class="-ms-2.5 me-auto" onClick={() => props.open(href())}>
               {ctx.t("beta.viewAll")}
             </Button>
           )}
@@ -114,29 +110,24 @@ export function DialogBetaNotes(props: {
 /** How far the list's edges feather once it scrolls. */
 const FADE = 24
 
+// Every entry starts on the heading's edge; a visual sits small at the row's end, so rows keep one rhythm with or
+// without one.
 function Section(props: { title: string; notes: readonly BetaNote[]; open: (href: string) => void }) {
   return (
     <Show when={props.notes.length > 0}>
-      <section class="flex flex-col gap-2">
-        <h2 class="m-0 text-12-medium leading-[var(--line-height-compact)] text-v2-text-text-muted">{props.title}</h2>
-        <ul class="m-0 flex list-none flex-col gap-3.5 p-0">
+      <section class="flex flex-col gap-3">
+        <h2 class="m-0 text-12-medium leading-4 text-v2-text-text-muted">{props.title}</h2>
+        <ul class="m-0 flex list-none flex-col gap-4 p-0">
           <For each={props.notes}>
             {(note) => (
-              <li class="flex min-w-0 items-start gap-3">
-                <span aria-hidden="true" class="mt-0.5 flex size-4 shrink-0 text-v2-icon-icon-muted">
-                  <Show when={!note.visual}>
-                    <span data-beta-icon class="flex">
-                      <KindIcon type={note.type} />
-                    </span>
-                  </Show>
-                </span>
-                <div class="flex min-w-0 flex-1 flex-col gap-1.5 [overflow-wrap:anywhere]">
+              <li class="flex min-w-0 items-center gap-4">
+                <div class="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
                   <p class="m-0 text-[13px] leading-5 font-[500] tracking-[-0.04px] text-v2-text-text-base">
                     {note.summary}
                   </p>
-                  <Show when={note.visual}>{(visual) => <Visual visual={visual()} label={note.description} />}</Show>
                   <Meta note={note} open={props.open} />
                 </div>
+                <Show when={note.visual}>{(visual) => <Visual visual={visual()} label={note.description} />}</Show>
               </li>
             )}
           </For>
@@ -146,7 +137,7 @@ function Section(props: { title: string; notes: readonly BetaNote[]; open: (href
   )
 }
 
-/** What changed, drawn: the pull request's looping SVG, only ever as an image, in the dialog's icon colour. */
+/** What changed, drawn: the pull request's looping SVG at half size, only ever as an image, in the icon colour. */
 function Visual(props: { visual: NonNullable<BetaNote["visual"]>; label?: string }) {
   const [color, setColor] = createSignal<string>()
   let frame!: HTMLSpanElement
@@ -154,17 +145,14 @@ function Visual(props: { visual: NonNullable<BetaNote["visual"]>; label?: string
   onMount(() => setColor(getComputedStyle(frame).color))
 
   return (
-    <span
-      ref={frame}
-      class="block h-[72px] w-[240px] max-w-full rounded-[8px] bg-current/[0.04] text-v2-icon-icon-base"
-    >
+    <span ref={frame} class="block h-9 w-[120px] shrink-0 rounded-[6px] bg-current/[0.05] text-v2-icon-icon-base">
       <Show when={color()}>
         {(value) => (
           <img
             src={visualSource(props.visual, { color: value(), still: prefersReducedMotion() })}
             alt={props.label ?? ""}
-            width="240"
-            height="72"
+            width="120"
+            height="36"
             draggable={false}
             class="block size-full object-contain"
           />
@@ -178,10 +166,10 @@ function Visual(props: { visual: NonNullable<BetaNote["visual"]>; label?: string
 function Meta(props: { note: BetaNote; open: (href: string) => void }) {
   return (
     <Show when={props.note.author || props.note.pr}>
-      <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-4 font-[440] text-v2-text-text-faint">
+      <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-4 font-[400] text-v2-text-text-faint">
         <Show when={props.note.author}>
           {(author) => (
-            <span class="flex min-w-0 items-center gap-1.5 text-v2-text-text-muted">
+            <span class="flex min-w-0 items-center gap-1.5">
               <Avatar name={author().name} src={author().avatar} />
               {author().name}
             </span>
@@ -218,7 +206,7 @@ function Avatar(props: { name: string; src?: string }) {
   return (
     <span
       aria-hidden="true"
-      class="relative grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-v2-background-bg-layer-02 text-[9px] leading-none font-[530] text-v2-text-text-muted uppercase after:absolute after:inset-0 after:rounded-full after:shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)]"
+      class="relative grid size-3.5 shrink-0 place-items-center overflow-hidden rounded-full bg-v2-background-bg-layer-02 text-[8px] leading-none font-[530] text-v2-text-text-muted uppercase after:absolute after:inset-0 after:rounded-full after:shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)]"
     >
       {Array.from(props.name.trim())[0]}
       <Show when={props.src}>
@@ -237,25 +225,5 @@ function Avatar(props: { name: string; src?: string }) {
         )}
       </Show>
     </span>
-  )
-}
-
-/** Stands in for a change without a visual. New is a sparkle, a fix a check, a speedup a bolt. */
-function KindIcon(props: { type: BetaNote["type"] }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linejoin="round">
-      <Switch>
-        <Match when={props.type === "feat"}>
-          <path d="M8 2.5c.4 3.1 2.4 5.1 5.5 5.5-3.1.4-5.1 2.4-5.5 5.5-.4-3.1-2.4-5.1-5.5-5.5 3.1-.4 5.1-2.4 5.5-5.5Z" />
-        </Match>
-        <Match when={props.type === "fix"}>
-          <circle cx="8" cy="8" r="5.5" />
-          <path d="m5.75 8.25 1.5 1.5 3-3.25" stroke-linecap="round" />
-        </Match>
-        <Match when={props.type === "perf"}>
-          <path d="M8.75 2.5 4.5 9h3.25l-.5 4.5L11.5 7H8.25l.5-4.5Z" />
-        </Match>
-      </Switch>
-    </svg>
   )
 }
