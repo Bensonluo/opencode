@@ -17,6 +17,7 @@ import { InstructionEntry } from "./instruction-entry.js"
 import { Slug } from "../util/slug.js"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Money } from "@opencode/schema/money"
+import type { TokenUsage } from "@opencode/schema/token-usage"
 import { Worktree } from "@opencode/schema/worktree"
 import { Project } from "@opencode/schema/project"
 import { AbsolutePath, RelativePath } from "../schema.js"
@@ -31,17 +32,13 @@ type MessageEvent = Exclude<
 >
 
 const encodeMessage = Schema.encodeSync(SessionMessage.Info)
+const decodeModelRef = Schema.decodeUnknownSync(Model.Ref)
 
 export class SessionAlreadyProjected extends Error {}
 
 type Usage = {
   cost: number
-  tokens: {
-    input: number
-    output: number
-    reasoning: number
-    cache: { read: number; write: number }
-  }
+  tokens: TokenUsage.Info
 }
 
 const ForkBatchSize = 500
@@ -284,7 +281,7 @@ function run(db: DatabaseService, event: MessageEvent) {
           .get()
           .pipe(
             Effect.orDie,
-            Effect.map((row) => (row?.model ? Schema.decodeUnknownSync(Model.Ref)(row.model) : undefined)),
+            Effect.map((row) => (row?.model ? decodeModelRef(row.model) : undefined)),
           )
       },
       getLocation() {
