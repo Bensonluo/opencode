@@ -2,7 +2,9 @@ export * as PtyHandoff from "./pty-handoff.js"
 
 import type { PersistentPty } from "@opencode/schema/persistent-pty"
 import { readFile, rename, rm, writeFile } from "node:fs/promises"
+import type { ExperimentalPersistentPtyHandoffOutput } from "./promise/index.js"
 import type { Info } from "./service.js"
+import { headers } from "./service-probe.js"
 
 type Sidecar = {
   readonly source: Pick<Info, "id" | "pid" | "url">
@@ -20,10 +22,10 @@ export async function prepare(file: string, info: Info, timeout: number) {
   const { OpenCode } = await import("./promise/index.js")
   const client = OpenCode.make({
     baseUrl: info.url,
-    headers:
-      info.password === undefined
-        ? undefined
-        : { authorization: "Basic " + Buffer.from(`opencode:${info.password}`).toString("base64") },
+    headers: headers({
+      url: info.url,
+      auth: info.password === undefined ? undefined : { type: "basic", username: "opencode", password: info.password },
+    }),
   })
   const handoff = await client.experimental.persistentPty
     .handoff({ signal: AbortSignal.timeout(timeout) })
@@ -42,12 +44,9 @@ export async function prepare(file: string, info: Info, timeout: number) {
   )
 }
 
-function parse(body: unknown) {
-  if (typeof body !== "object" || body === null || !("handoff" in body))
-    throw new Error("Invalid persistent terminal handoff response")
+function parse(body: ExperimentalPersistentPtyHandoffOutput) {
   if (body.handoff === null) return null
-  if (!isHandoff(body.handoff) || body.handoff.expiresAt <= Date.now())
-    throw new Error("Invalid or expired persistent terminal handoff")
+  if (body.handoff.expiresAt <= Date.now()) throw new Error("Invalid or expired persistent terminal handoff")
   return body.handoff
 }
 
