@@ -10,7 +10,7 @@
   }
 
   @media (hover: hover) {
-    &:hover:not([data-expanded]) {
+    &:hover:not(:active, [data-expanded]) {
       background-image: linear-gradient(var(--v2-overlay-simple-overlay-hover), var(--v2-overlay-simple-overlay-hover));
     }
   }
