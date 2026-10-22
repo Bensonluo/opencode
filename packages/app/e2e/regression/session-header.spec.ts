@@ -224,24 +224,11 @@ test.describe("location", () => {
         .poll(() => header.getByRole("heading").evaluate((element) => element.scrollWidth <= element.clientWidth))
         .toBe(true)
       if (panel) {
-        await expect
-          .poll(() =>
-            header.evaluate((element) => {
-              const icon = element.querySelector('svg:has(use[href="#opencode-v2-icon-outline-worktree"])')
-              const before = icon?.previousElementSibling?.getBoundingClientRect()
-              const avatar = element
-                .querySelector('[data-slot="session-location-trigger"]')
-                ?.firstElementChild?.getBoundingClientRect()
-              const bounds = icon?.getBoundingClientRect()
-
-              return bounds && before && avatar ? [before.left - avatar.right, bounds.left - before.right] : []
-            }),
-          )
-          .toEqual([10, 8])
         const separator = header.locator('[data-slot="session-title-separator"]')
         await expect(separator).toBeVisible()
         await expect(separator).toHaveText("")
         await expect(separator).toHaveAttribute("aria-hidden", "true")
+        await expect(header.locator(".session-location-worktree-icon")).toBeHidden()
         const location = header.locator('[data-slot="session-location-trigger"]')
         await location.hover()
         await expect(location).toHaveCSS("padding-inline-start", "4px")
@@ -256,7 +243,7 @@ test.describe("location", () => {
     await openSession(page, workspace)
     await expect(trigger(page).locator('[data-slot="session-location-project"]')).toHaveText("Location")
     await expect(trigger(page).locator('[data-slot="session-location-worktree"]')).toHaveText("quiet-falcon")
-    await expect(trigger(page).getByText("/", { exact: true })).toBeVisible()
+    await expect(trigger(page)).not.toContainText("/")
     await expect(trigger(page).locator('svg:has(use[href="#opencode-v2-icon-outline-worktree"])')).toBeVisible()
     await trigger(page).click()
     const card = page.locator('[data-slot="session-location-card"]')

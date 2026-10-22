@@ -5,12 +5,12 @@ import { spinnerDots, spinnerKeyframes, spinnerVariants, type SpinnerVariant } f
 
 export type SpinnerVariantName = "today" | keyof typeof spinnerVariants
 
-// Experiment: dot-matrix variations to try in place of today's spinner, everywhere it shows (tabs, loaders, the
-// update button), before one ships.
+// Every activity spinner (tabs, loaders, the activity chip, subagents, the update button) shows Soft Radar; Knobs →
+// Experiments tries the other dot-matrix variations, and Today's PNG, in its place.
 const choice = motionTuning.choice("spinner.variant", {
   label: "Activity spinner",
   group: "Experiments",
-  value: "today",
+  value: "radar",
   // SAFETY: built from spinnerVariants' own keys, plus "today".
   labels: Object.fromEntries([
     ["today", "Today"],
@@ -83,10 +83,10 @@ export function Spinner(props: ComponentProps<"svg"> & { "data-component"?: stri
                     height={dot.size}
                     rx={dot.size * 0.24}
                     style={{
-                      "--still": dot.hold === "lit" ? 1 : dot.hold === "rest" ? current.dim : dot.still,
+                      "--still": dot.still,
                       animation: dot.hold
                         ? undefined
-                        : `${keyframes} calc(${loop}s * var(--spinner-time, 1)) linear calc(${-loop * (1 - dot.at)}s * var(--spinner-time, 1)) infinite`,
+                        : `${keyframes}-${dot.shape} calc(${loop}s * var(--spinner-time, 1)) linear calc(${-loop * (1 - dot.at)}s * var(--spinner-time, 1)) infinite`,
                     }}
                   />
                 )

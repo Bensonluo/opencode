@@ -55,6 +55,8 @@ export default {
   "demo.action.background": "Bg shell",
   "demo.autoplay.start": "Auto-play",
   "demo.autoplay.stop": "Stop auto-play",
+  "components.label": "COMPONENTS",
+  "components.tip": "Open the components lab: every story, with live controls and its states",
   "speed.label": "SPEED",
   "speed.tip": "Global animation speed. Click to step through 0.5× and 0.25× back to 1×.",
   "slow.label": "SLOW",

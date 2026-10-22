@@ -102,6 +102,7 @@
     "test": "bun test src --only-failures",
     "dev": "vite",
     "bench:motion": "bun script/motion-bench.ts",
+    "generate:spinner": "bun script/generate-spinner.ts",
     "generate:tailwind": "bun run script/tailwind.ts",
     "generate:v2-oc2": "bun run script/build-oc2-v2-overrides.ts"
   },
@@ -126,7 +127,7 @@
     "@solid-primitives/resize-observer": "catalog:",
     "fuzzysort": "catalog:",
     "katex": "0.16.47",
-    "knobs": "npm:@kitlangton/knobs@0.3.0",
+    "knobs": "npm:@kitlangton/knobs@0.4.0-next.12",
     "marked": "catalog:",
     "motion": "12.34.5",
     "remeda": "catalog:",
