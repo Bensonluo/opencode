@@ -248,14 +248,13 @@ const layer = Layer.effect(
           yield* Effect.logWarning("credential update skipped", { credentialID: id, reason: "credential_removed" })
           return
         }
-        const labelChanged = updates.label !== undefined && updates.label !== credential.label
         yield* Effect.logInfo("credential updated", {
           credentialID: id,
           integrationID: credential.integrationID,
           valueChanged: updates.value !== undefined,
-          labelChanged,
+          labelChanged: updates.label !== undefined && updates.label !== credential.label,
         })
-        if (labelChanged || updates.value !== undefined)
+        if (updates.label !== undefined && updates.label !== credential.label)
           yield* bus.publish(Event.Updated, {}, { global: true })
       }),
       remove: Effect.fn("Credential.remove")(function* (id) {
