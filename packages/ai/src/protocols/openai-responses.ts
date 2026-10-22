@@ -131,17 +131,24 @@ const CheckpointBody = Schema.Struct({
   input: Schema.Array(Schema.Union([OpenResponses.InputItem, CompactionTrigger])),
 })
 
+const isHostedToolItem = Schema.is(OpenAIResponsesHostedToolItem)
+const isProMode = Schema.is(Schema.Struct({ mode: Schema.Literal("pro") }))
+const isImageGenerationTool = Schema.is(OpenAIResponsesImageGenerationTool)
+const decodeContextManagement = ProviderShared.validateWith(
+  Schema.decodeUnknownEffect(Schema.UndefinedOr(ContextManagement)),
+)
+
 const adapter = {
   id: ADAPTER,
   name: NAME,
-  restoreHostedToolItem: (item: unknown) => (Schema.is(OpenAIResponsesHostedToolItem)(item) ? item : undefined),
+  restoreHostedToolItem: (item: unknown) => (isHostedToolItem(item) ? item : undefined),
 } satisfies OpenResponses.ProviderAdapter
 
 // GPT-6 and later default to `configuration_update` support, except in `reasoning.mode: "pro"`
 // or alongside automatic `context_management` compaction.
 const supportsEffortUpdates = (request: LLMRequest) => {
   if (request.providerOptions?.contextManagement !== undefined) return false
-  if (Schema.is(Schema.Struct({ mode: Schema.Literal("pro") }))(request.http?.body?.reasoning)) return false
+  if (isProMode(request.http?.body?.reasoning)) return false
   const override = request.model.compatibility?.supportsEffortUpdates
   if (override !== undefined) return override
   const match = /(?:^|\/)gpt-(\d+)(?:\.\d+)?(?:-|$)/i.exec(request.model.id)
@@ -155,13 +162,13 @@ const nativeImageToolInput = (tool: ToolDefinition) => {
 
 const nativeImageTool = (tool: ToolDefinition) => {
   const native = nativeImageToolInput(tool)
-  return Schema.is(OpenAIResponsesImageGenerationTool)(native) ? native : undefined
+  return isImageGenerationTool(native) ? native : undefined
 }
 
 const lowerTool = Effect.fnUntraced(function* (tool: ToolDefinition) {
   const native = nativeImageToolInput(tool)
   if (native !== undefined) {
-    if (Schema.is(OpenAIResponsesImageGenerationTool)(native)) return native
+    if (isImageGenerationTool(native)) return native
     return yield* ProviderShared.invalidRequest("OpenAI Responses image generation tool options are invalid")
   }
   return yield* OpenResponses.lowerTool(NAME, tool)
@@ -197,9 +204,7 @@ const lowerToolChoice = (toolChoice: NonNullable<LLMRequest["toolChoice"]>, tool
   })
 
 const fromRequest = Effect.fn("OpenAIResponses.fromRequest")(function* (request: LLMRequest) {
-  const management = yield* ProviderShared.validateWith(
-    Schema.decodeUnknownEffect(Schema.UndefinedOr(ContextManagement)),
-  )(request.providerOptions?.contextManagement)
+  const management = yield* decodeContextManagement(request.providerOptions?.contextManagement)
   const options = OpenResponsesOptions.resolve(request)
   const updates = resolveEffortUpdates(request, options.reasoningEffort)
   return {
@@ -210,7 +215,7 @@ const fromRequest = Effect.fn("OpenAIResponses.fromRequest")(function* (request:
     tool_choice:
       request.tools.length === 0
         ? undefined
-        : (OpenResponses.allowedToolChoice(request) ??
+        : (OpenResponses.allowedToolChoice(request, options) ??
           (request.toolChoice ? yield* lowerToolChoice(request.toolChoice, request.tools) : undefined)),
   }
 })
