@@ -2959,7 +2959,7 @@ describe("SessionRunnerLLM", () => {
     expect(userTexts(s.requests[1])[0]).toContain("Request 3:")
   })
 
-  scenario("serializes history without system prompt, tools or media after a summary input overflow", function* (s) {
+  scenario("serializes history without tools or media after a summary input overflow", function* (s) {
     const image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
     yield* s.session.prompt({
       sessionID,
@@ -2997,7 +2997,7 @@ describe("SessionRunnerLLM", () => {
     expect(userTexts(s.requests[1])[0]).toContain("[Tool result]:")
     // Tool output is only cut when the transcript would not fit whole.
     expect(userTexts(s.requests[1])[0]).toContain("x".repeat(5_000))
-    expect(s.requests[1]?.system).toEqual([])
+    expect(s.requests[1]?.system).toEqual(s.requests[0]?.system)
     expect(s.requests[1]?.tools).toEqual([])
     expect((yield* s.messages).find((message) => message.id === compaction.id)).toMatchObject({ status: "completed" })
   })

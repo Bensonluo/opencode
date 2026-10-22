@@ -484,8 +484,8 @@ export const layer = Layer.effect(
      * History that has to change is sent as text rather than as edited messages: `[previous compaction][transcript]`,
      * the conversation since that compaction as one text message. A previous summary always stays in front, while
      * its verbatim recent part becomes the oldest transcript entry; a previous native window stays exactly as the
-     * provider made it. The transcript has no system prompt or tools, which the summary does not need and which no
-     * longer share a cached prefix, and leaves out reasoning, media, and instruction updates. Tool calls and outputs
+     * provider made it. The transcript has no tool definitions, which the summary does not need and which no longer
+     * share a cached prefix, and leaves out reasoning, media, and instruction updates. Tool calls and outputs
      * are kept whole if that fits, then cut shorter at each `TRANSCRIPT_TOOL_LIMITS` step, and only at the shortest are
      * whole exchanges dropped, oldest first. Undefined when even the newest exchange does not fit.
      */
@@ -521,7 +521,6 @@ export const layer = Layer.effect(
         omitted ? `[${omitted} older ${omitted === 1 ? "exchange" : "exchanges"} omitted]\n\n` : ""
       const transcript = (exchanges: ReadonlyArray<string>, omitted: number) =>
         LLMRequest.update(request, {
-          system: [],
           tools: [],
           messages: [...lead, Message.user(note(omitted) + exchanges.join("\n\n"))],
         })
@@ -534,7 +533,9 @@ export const layer = Layer.effect(
       const exchanges = exchangesAt(TRANSCRIPT_TOOL_MIN)
       // Room for the longest possible note is set aside before choosing what to keep.
       const room =
-        target - estimateRequest({ system: [], tools: [], messages: lead }) - Token.estimate(note(exchanges.length))
+        target -
+        estimateRequest({ system: request.system, tools: [], messages: lead }) -
+        Token.estimate(note(exchanges.length))
       const kept = exchanges.slice(oldestToDrop(exchanges, (text) => Token.estimate(text) + 1, room))
       if (kept.length === 0) return undefined
       return transcript(kept, exchanges.length - kept.length)
