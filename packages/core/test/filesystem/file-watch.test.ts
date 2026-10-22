@@ -133,6 +133,30 @@ describe("FileWatch dead watches", () => {
       expect(counts.subscribes).toBe(2)
     }),
   )
+
+  const failures = { subscribes: 0 }
+  const broken = testEffect(
+    FileWatch.layer().pipe(
+      Layer.provide(
+        Layer.succeed(
+          Watcher.Service,
+          Watcher.Service.of({
+            subscribe: () => Effect.sync(() => (failures.subscribes++, Stream.die(new Error("watch failed")))),
+          }),
+        ),
+      ),
+      Layer.provide(services),
+    ),
+  )
+  broken.effect("starts a new watch when the previous one failed", () =>
+    Effect.gen(function* () {
+      const fileWatch = yield* FileWatch.Service
+      yield* fileWatch.watch(file("a.ts"))
+      yield* Effect.repeat(Effect.yieldNow, { times: 10 })
+      yield* fileWatch.watch(file("a.ts"))
+      expect(failures.subscribes).toBe(2)
+    }),
+  )
 })
 
 describe("FileWatch disabled", () => {

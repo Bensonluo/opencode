@@ -98,19 +98,21 @@ export const layer = (options?: Options) =>
               )
             }),
           )
-          // The native watch ended (e.g. its directory vanished): forget it so the next watch starts a new one.
-          // The scope closes from another fiber because closing it interrupts this one.
-          yield* lock.withPermit(
-            Effect.suspend(() => {
-              if (locations.get(key)?.get(input.file)?.scope !== child) return Effect.void
-              remove(key, input.file)
-              return Scope.close(child, Exit.void).pipe(Effect.forkIn(scope), Effect.asVoid)
-            }),
-          )
         }).pipe(
           Effect.catchCauseIf(
             (cause) => !Cause.hasInterrupts(cause),
             (cause) => Effect.logError("file watch failed", { file: input.file, cause }),
+          ),
+          // The watch ended or failed (e.g. its directory vanished): forget it so the next watch starts a new one.
+          // Interrupts skip this. The scope closes from another fiber because closing it interrupts this one.
+          Effect.andThen(
+            lock.withPermit(
+              Effect.suspend(() => {
+                if (locations.get(key)?.get(input.file)?.scope !== child) return Effect.void
+                remove(key, input.file)
+                return Scope.close(child, Exit.void).pipe(Effect.forkIn(scope), Effect.asVoid)
+              }),
+            ),
           ),
           Effect.forkIn(child, { startImmediately: true }),
         )
