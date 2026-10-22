@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import path from "path"
 import { ShellParse } from "../src/shell/parse.js"
 
 describe("portable shell parser compatibility", () => {
@@ -98,25 +99,41 @@ describe("portable shell parser compatibility", () => {
         "/workspace",
       ),
     )
+    const outside = path.resolve("/workspace", "C:\\outside")
+    const otherDir = path.resolve(outside, "../other dir")
+    const short = path.resolve(otherDir, "/short")
+    const literal = path.resolve(short, "/literal")
+    const prefix = path.resolve(literal, "/prefix")
+    const litprefix = path.resolve(prefix, "/litprefix")
+    const patprefix = path.resolve(litprefix, "/patprefix")
+    const pspath = path.resolve(patprefix, "/pspath")
+    const dashOutside = path.resolve(pspath, "-outside")
+    const dashDotDotOutside = path.resolve(dashOutside, "-/../../outside")
+    const dashDotDotOutside2 = path.resolve(dashDotDotOutside, "-/../../outside2")
+    const dashOutside2 = path.resolve(dashDotDotOutside2, "-outside2")
+    const dashOutside3 = path.resolve(dashOutside2, "-outside3")
+    const escapedVar = path.resolve(dashOutside3, "../$a/../outside4")
+    const escapedName = path.resolve(escapedVar, "/outside")
+    const quoted = path.resolve(escapedName, "C:\\quoted")
     expect(result).toEqual({
       commands: [],
       directories: [
-        "C:\\outside",
-        "../other dir",
-        "/short",
-        "/literal",
-        "/prefix",
-        "/litprefix",
-        "/patprefix",
-        "/pspath",
-        "-outside",
-        "-/../../outside",
-        "-/../../outside2",
-        "-outside2",
-        "-outside3",
-        "../$a/../outside4",
-        "/outside",
-        "C:\\quoted",
+        outside,
+        otherDir,
+        short,
+        literal,
+        prefix,
+        litprefix,
+        patprefix,
+        pspath,
+        dashOutside,
+        dashDotDotOutside,
+        dashDotDotOutside2,
+        dashOutside2,
+        dashOutside3,
+        escapedVar,
+        escapedName,
+        quoted,
       ],
     })
   })
@@ -167,7 +184,10 @@ describe("current native and legacy parity gaps", () => {
       shell: "bash",
       command: "cd 123; git == value",
       legacy: { commands: [{ resource: "git == value", save: "git value *" }], directories: [] },
-      native: { commands: [{ resource: "git == value", save: "git == *" }], directories: ["123"] },
+      native: {
+        commands: [{ resource: "git == value", save: "git == *" }],
+        directories: [path.resolve("/workspace", "123")],
+      },
     },
     {
       name: "native preserves substitution source in saved prefixes instead of skipping the argument",
@@ -192,8 +212,11 @@ describe("current native and legacy parity gaps", () => {
       name: "directory line continuations remain unresolved source rather than legacy split operands",
       shell: "bash",
       command: "cd before\\\nafter",
-      legacy: { commands: [], directories: ["before", "after"] },
-      native: { commands: [], directories: ["before\\\nafter"] },
+      legacy: {
+        commands: [],
+        directories: [path.resolve("/workspace", "before"), path.resolve("/workspace", "after")],
+      },
+      native: { commands: [], directories: [path.resolve("/workspace", "before\\\nafter")] },
     },
     {
       name: "native recognizes PowerShell carriage-return separators omitted by the legacy AST",
@@ -226,8 +249,11 @@ describe("current native and legacy parity gaps", () => {
       name: "native does not split comma-separated PowerShell directory operands",
       shell: "pwsh",
       command: "Set-Location a,b",
-      legacy: { commands: [], directories: ["a", ",b"] },
-      native: { commands: [], directories: ["a,b"] },
+      legacy: {
+        commands: [],
+        directories: [path.resolve("/workspace", "a"), path.resolve("/workspace", ",b")],
+      },
+      native: { commands: [], directories: [path.resolve("/workspace", "a,b")] },
     },
   ]) {
     test(fixture.name, async () => {

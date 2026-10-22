@@ -152,7 +152,7 @@ describe("ShellParse", () => {
     const result = await Effect.runPromise(ShellParse.scan("cd 'src dir' && git status", "/bin/bash", "/workspace"))
     expect(result).toEqual({
       commands: [{ resource: "git status", save: "git status *" }],
-      directories: ["src dir"],
+      directories: [path.resolve("/workspace", "src dir")],
     })
   })
 
@@ -160,7 +160,7 @@ describe("ShellParse", () => {
     const result = await Effect.runPromise(
       ShellParse.scan("Set-Location -LiteralPath '..\\outside'; Get-ChildItem", "pwsh", "C:\\workspace"),
     )
-    expect(result.directories).toEqual(["..\\outside"])
+    expect(result.directories).toEqual([path.resolve("C:\\workspace", "..\\outside")])
   })
 
   test("expands deterministic directory variables", async () => {
@@ -169,7 +169,9 @@ describe("ShellParse", () => {
 
     const backslash = await Effect.runPromise(ShellParse.scan("cd '~\\src'", "/bin/bash", "/workspace"))
     expect(backslash.directories).toEqual(
-      process.platform === "win32" ? [path.join(os.homedir(), "src")] : ["~\\src"],
+      process.platform === "win32"
+        ? [path.join(os.homedir(), "src")]
+        : [path.resolve("/workspace", "~\\src")],
     )
 
     const powershell = await Effect.runPromise(

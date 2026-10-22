@@ -172,11 +172,46 @@ export const scan = Effect.fnUntraced(function* (
   return yield* scanLegacy(command, shell, cwd)
 })
 
+type CwdTracker = {
+  current: string
+  stack: string[]
+}
+
+// Directory arguments of a directory-changing command are relative to the directory the shell
+// is in when the command runs, not the invocation cwd. Track it through the command list so
+// `cd a && cd ../b` resolves ../b against a, and emit absolute paths: the caller resolves every
+// entry against the invocation cwd. Dynamic targets cannot move the tracker because their value
+// is unknown until execution.
+const trackDirectories = (
+  tracker: CwdTracker,
+  name: string,
+  command: Part[],
+  powershell: boolean,
+  shell: string,
+) => {
+  const directories = directoryArgs(command, powershell, tracker.current, shell)
+  const resolved = directories.map((directory) => path.resolve(tracker.current, directory))
+
+  if (name === "popd") {
+    // `popd +N` rotation arguments are collected above but leave the shell in place.
+    if (directories.length === 0) {
+      const previous = tracker.stack.pop()
+      if (previous !== undefined) tracker.current = previous
+    }
+  } else if (directories.length === 1) {
+    if (name === "pushd") tracker.stack.push(tracker.current)
+    tracker.current = resolved[0]
+  }
+
+  return resolved
+}
+
 const scanLegacy = Effect.fnUntraced(function* (command: string, shell: string, cwd: string) {
   const parsers = yield* Effect.promise(load)
   const powershell = ShellSelect.ps(shell)
   const tree = (powershell ? parsers.ps : parsers.bash).parse(command)
   if (!tree) return yield* Effect.fail(new Error("Failed to parse shell command"))
+  const tracker: CwdTracker = { current: cwd, stack: [] }
 
   return yield* Effect.acquireUseRelease(
     Effect.succeed(tree),
@@ -190,7 +225,7 @@ const scanLegacy = Effect.fnUntraced(function* (command: string, shell: string, 
             if (tokens.length === 0) return result
             const name = powershell ? tokens[0].toLowerCase() : tokens[0]
             if (CWD.has(name)) {
-              result.directories.push(...directoryArgs(command, powershell, cwd, shell))
+              result.directories.push(...trackDirectories(tracker, name, command, powershell, shell))
               return result
             }
             result.commands.push({
@@ -220,6 +255,7 @@ export const scanPortable = Effect.fnUntraced(function* (command: string, shell:
     return yield* Effect.fail(new Error(`Portable shell scanner cannot analyze command: ${result.reason}`))
 
   const output: Result = { commands: [], directories: [] }
+  const tracker: CwdTracker = { current: cwd, stack: [] }
   for (const item of result.commands) {
     // The legacy command walk skips declarations, not the substitutions within them.
     if (item.declaration) continue
@@ -236,7 +272,9 @@ export const scanPortable = Effect.fnUntraced(function* (command: string, shell:
     const name = powershell ? words[0]?.toLowerCase() : words[0]
     if (CWD.has(name)) {
       output.directories.push(
-        ...directoryArgs(
+        ...trackDirectories(
+          tracker,
+          name,
           powershell
             ? words.flatMap((raw, index): Part[] => {
                 const text =
@@ -258,7 +296,6 @@ export const scanPortable = Effect.fnUntraced(function* (command: string, shell:
                 text: text.startsWith("$'") || (!/[$`~\\]/.test(text) && /['"]/.test(text)) ? item.words[index] : text,
               })),
           powershell,
-          cwd,
           shell,
         ),
       )
