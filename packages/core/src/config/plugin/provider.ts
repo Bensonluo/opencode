@@ -77,13 +77,18 @@ export const Plugin = define({
         const definitions = new Map<string, { readonly inherit: boolean; readonly base?: Model.Info }>()
         for (const [id, config] of Object.entries(item.models ?? {})) {
           const lookup = config.modelID ?? id
-          // Catalogs list routing-suffixed variants (OpenRouter ":floor", ":free", …) under the base
-          // model id, so an exact miss inherits from the base when the suffix is the only difference.
-          const stripped = lookup.replace(/:[^:/]*$/, "")
+          // OpenRouter route modifiers (":floor", ":nitro", ":exacto", ":online") are
+          // request-time routing hints on the same model, never separate catalog keys.
+          // When the exact id misses, inherit from the base model for those only —
+          // other colon suffixes (":free", ":thinking", size tags, …) name different
+          // catalog models with their own pricing, capabilities and limits.
+          const routed = /^(.+):(?:floor|nitro|exacto|online)$/.exec(lookup)?.[1]
           const base =
             source?.models.get(lookup) ??
             source?.models.get(id) ??
-            (stripped !== lookup ? source?.models.get(stripped) : undefined)
+            (routed !== undefined && source?.provider.package === "@opencode/ai/providers/openrouter"
+              ? source?.models.get(routed)
+              : undefined)
           const inherit = changed || !current?.models.has(id)
           // Bind the source at this point in the provider fold. Later source edits/removal
           // and its credential availability must not change an already-defined alias.

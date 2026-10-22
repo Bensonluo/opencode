@@ -141,7 +141,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
       const catalogID = Model.ID.make("openai/gpt-6.1-sol")
       yield* providers.transform((editor) => {
         editor.update(providerID, (provider) => {
-          provider.package = "@opencode/ai/providers/openai-compatible"
+          provider.package = "@opencode/ai/providers/openrouter"
         })
         editor.models.update(providerID, catalogID, (model) => {
           model.limit = { context: 1_050_000, input: 922_000, output: 128_000 }
@@ -157,6 +157,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
                   floor: { modelID: "openai/gpt-6.1-sol:floor", name: "Sol Workhorse Floor" },
                   plain: { modelID: "openai/gpt-6.1-sol" },
                   missing: { modelID: "openai/no-such-base:floor" },
+                  free: { modelID: "openai/gpt-6.1-sol:free" },
                 },
               },
             },
@@ -174,6 +175,12 @@ describe("ConfigProviderPlugin.Plugin", () => {
         output: 128_000,
       })
       expect(required(yield* models.get(providerID, Model.ID.make("missing"))).limit).toEqual({
+        context: 200_000,
+        output: 32_000,
+      })
+      // A non-modifier suffix (":free" is its own catalog SKU, absent here) must not
+      // silently adopt the base model's metadata.
+      expect(required(yield* models.get(providerID, Model.ID.make("free"))).limit).toEqual({
         context: 200_000,
         output: 32_000,
       })
