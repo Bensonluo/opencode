@@ -227,7 +227,6 @@ const AnthropicCompactionBlock = Schema.Struct({
   type: Schema.Literal("compaction"),
   content: Schema.NullOr(Schema.String),
 })
-const decodeAnthropicCompactionBlock = Schema.decodeUnknownOption(AnthropicCompactionBlock)
 const AnthropicAssistantBlock = Schema.Union([
   AnthropicCompactionBlock,
   AnthropicTextBlock,
@@ -1544,7 +1543,7 @@ const step = (state: ParserState, event: AnthropicEvent) => {
     if (!ProviderShared.isRecord(event.content_block) || typeof event.content_block.type !== "string")
       return invalidStreamEvent(event)
     if (event.content_block.type === "compaction") {
-      const decoded = decodeAnthropicCompactionBlock(event.content_block)
+      const decoded = Schema.decodeUnknownOption(AnthropicCompactionBlock)(event.content_block)
       if (event.index === undefined || Option.isNone(decoded)) return invalidStreamEvent(event)
       return Effect.succeed<StepResult>([
         { ...state, compactions: { ...state.compactions, [event.index]: decoded.value.content } },

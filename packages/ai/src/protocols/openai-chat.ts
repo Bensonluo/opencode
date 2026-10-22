@@ -64,8 +64,7 @@ type OpenAIChatTool = Schema.Schema.Type<typeof OpenAIChatTool>
 const ExtraContent = Schema.Struct({
   google: Schema.Struct({ thought_signature: Schema.String }),
 })
-const decodeExtraContentSchema = Schema.decodeUnknownOption(ExtraContent)
-const decodeExtraContent = (value: unknown) => Option.getOrUndefined(decodeExtraContentSchema(value))
+const decodeExtraContent = (value: unknown) => Option.getOrUndefined(Schema.decodeUnknownOption(ExtraContent)(value))
 
 export const OpenAIChatAssistantToolCall = Schema.Struct({
   id: Schema.String,
