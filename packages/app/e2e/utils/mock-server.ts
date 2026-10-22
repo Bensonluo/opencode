@@ -1130,6 +1130,8 @@ function mockHandlers(
                 : entries,
             })),
           ),
+        fsWatch: () => Effect.void,
+        fsUnwatch: () => Effect.void,
         fsWrite: (ctx) => {
           const write = config.onFileWrite
 
