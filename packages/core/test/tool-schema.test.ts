@@ -85,7 +85,7 @@ test("patterns with a leading anchor get a trailing anchor for strict providers"
     properties: {
       sessionID: { type: "string", pattern: "^ses.*$" },
       alreadyAnchored: { type: "string", pattern: "^ses$" },
-      alternation: { type: "string", pattern: "^(a|b).*$" },
+      alternation: { type: "string", pattern: "^a|b" },
     },
     required: ["sessionID", "alreadyAnchored", "alternation"],
     additionalProperties: false,

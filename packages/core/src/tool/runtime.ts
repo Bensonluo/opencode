@@ -218,7 +218,10 @@ const anchorPatterns = (value: unknown): unknown => {
 const anchorPattern = (pattern: string) => {
   if (!startsWithAnchor(pattern) || endsWithAnchor(pattern)) return pattern
   const body = pattern.slice(1)
-  return topLevelAlternation(body) ? `^(${body}).*$` : `^${body}.*$`
+  // A top-level "|" only anchors the first branch ("^a|b" also matches any value
+  // containing "b"), so appending ".*$" would narrow the accepted set. Leave it.
+  if (topLevelAlternation(body)) return pattern
+  return `^${body}.*$`
 }
 
 const startsWithAnchor = (pattern: string) => pattern.startsWith("^") && isUnescaped(pattern, 0)
