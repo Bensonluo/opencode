@@ -61,9 +61,33 @@ test("Effect tool schemas use exact optional keys and flatten compatible constra
     type: "object",
     properties: {
       offset: { type: "integer", minimum: 0 },
-      code: { type: "string", pattern: "^a", allOf: [{ pattern: "z$" }] },
+      code: { type: "string", pattern: "^a.*$", allOf: [{ pattern: "z$" }] },
     },
     required: ["code"],
+    additionalProperties: false,
+  })
+})
+
+test("patterns with a leading anchor get a trailing anchor for strict providers", () => {
+  const tool: Info = {
+    name: "anchored",
+    description: "Anchored patterns",
+    input: Schema.Struct({
+      sessionID: Schema.String.check(Schema.isStartingWith("ses")),
+      alreadyAnchored: Schema.String.check(Schema.isPattern(/^ses$/u)),
+      alternation: Schema.String.check(Schema.isPattern(/^a|b/u)),
+    }),
+    execute: () => Effect.succeed({ content: "unused" }),
+  }
+
+  expect(definition(tool).inputSchema).toEqual({
+    type: "object",
+    properties: {
+      sessionID: { type: "string", pattern: "^ses.*$" },
+      alreadyAnchored: { type: "string", pattern: "^ses$" },
+      alternation: { type: "string", pattern: "^(a|b).*$" },
+    },
+    required: ["sessionID", "alreadyAnchored", "alternation"],
     additionalProperties: false,
   })
 })
