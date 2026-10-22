@@ -2,7 +2,6 @@ export * as PtyHandoff from "./pty-handoff.js"
 
 import type { PersistentPty } from "@opencode/schema/persistent-pty"
 import { readFile, rename, rm, writeFile } from "node:fs/promises"
-import type { ExperimentalPersistentPtyHandoffOutput } from "./promise/index.js"
 import type { Info } from "./service.js"
 import { headers } from "./service-probe.js"
 
@@ -44,9 +43,12 @@ export async function prepare(file: string, info: Info, timeout: number) {
   )
 }
 
-function parse(body: ExperimentalPersistentPtyHandoffOutput) {
+function parse(body: unknown) {
+  if (typeof body !== "object" || body === null || !("handoff" in body))
+    throw new Error("Invalid persistent terminal handoff response")
   if (body.handoff === null) return null
-  if (body.handoff.expiresAt <= Date.now()) throw new Error("Invalid or expired persistent terminal handoff")
+  if (!isHandoff(body.handoff) || body.handoff.expiresAt <= Date.now())
+    throw new Error("Invalid or expired persistent terminal handoff")
   return body.handoff
 }
 
