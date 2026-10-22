@@ -103,6 +103,9 @@ const RESERVE_SHARE = 0.15
 const UNKNOWN_WINDOW = 200_000
 /** A summary gets at least this much output, or the room left if less, even when the estimate margin leaves less. */
 const SUMMARY_OUTPUT_FLOOR = 32_000
+/** Characters kept per tool input and output in a summary transcript, tried in order before dropping exchanges. */
+const TRANSCRIPT_TOOL_MIN = 200
+const TRANSCRIPT_TOOL_LIMITS = [Number.POSITIVE_INFINITY, 1_250, TRANSCRIPT_TOOL_MIN]
 const IMAGE_TOKEN_ESTIMATE = 1_500
 const PDF_TOKEN_ESTIMATE = 2_000
 
@@ -481,9 +484,10 @@ export const layer = Layer.effect(
      * History that has to change is sent as text rather than as edited messages: `[previous compaction][transcript]`,
      * the conversation since that compaction as one text message. A previous summary always stays in front, while
      * its verbatim recent part becomes the oldest transcript entry; a previous native window stays exactly as the
-     * provider made it. The transcript leaves out reasoning, media, and instruction updates, and cuts long tool
-     * outputs. Only if it still does not fit are whole exchanges dropped, oldest first. Undefined when even the
-     * newest exchange does not fit.
+     * provider made it. The transcript has no system prompt or tools, which the summary does not need and which no
+     * longer share a cached prefix, and leaves out reasoning, media, and instruction updates. Tool calls and outputs
+     * are kept whole if that fits, then cut shorter at each `TRANSCRIPT_TOOL_LIMITS` step, and only at the shortest are
+     * whole exchanges dropped, oldest first. Undefined when even the newest exchange does not fit.
      */
     const flattenAndDropOldest = (request: LLMRequest, context: SessionContext.Loaded, target: number) => {
       const previous = previousCompaction(context.messages)
@@ -502,29 +506,38 @@ export const layer = Layer.effect(
       const recent = summary ? SessionRecentText.kept(summary) : ""
 
       // A user message and everything after it, up to the next one, is one exchange: kept or dropped whole.
-      const exchanges = request.messages.slice(end).reduce<string[]>(
-        (groups, message) => {
-          const text = flattenMessage(message)
-          if (!text) return groups
-          if (message.role === "user" || groups.length === 0) groups.push(text)
-          else groups[groups.length - 1] += `\n${text}`
-          return groups
-        },
-        recent ? [recent] : [],
-      )
-
+      const exchangesAt = (toolLimit: number) =>
+        request.messages.slice(end).reduce<string[]>(
+          (groups, message) => {
+            const text = flattenMessage(message, toolLimit)
+            if (!text) return groups
+            if (message.role === "user" || groups.length === 0) groups.push(text)
+            else groups[groups.length - 1] += `\n${text}`
+            return groups
+          },
+          recent ? [recent] : [],
+        )
       const note = (omitted: number) =>
         omitted ? `[${omitted} older ${omitted === 1 ? "exchange" : "exchanges"} omitted]\n\n` : ""
+      const transcript = (exchanges: ReadonlyArray<string>, omitted: number) =>
+        LLMRequest.update(request, {
+          system: [],
+          tools: [],
+          messages: [...lead, Message.user(note(omitted) + exchanges.join("\n\n"))],
+        })
+
+      for (const toolLimit of TRANSCRIPT_TOOL_LIMITS) {
+        const whole = transcript(exchangesAt(toolLimit), 0)
+        if (estimateRequest(whole) <= target) return whole
+      }
+
+      const exchanges = exchangesAt(TRANSCRIPT_TOOL_MIN)
       // Room for the longest possible note is set aside before choosing what to keep.
       const room =
-        target -
-        estimateRequest({ system: request.system, tools: request.tools, messages: lead }) -
-        Token.estimate(note(exchanges.length))
+        target - estimateRequest({ system: [], tools: [], messages: lead }) - Token.estimate(note(exchanges.length))
       const kept = exchanges.slice(oldestToDrop(exchanges, (text) => Token.estimate(text) + 1, room))
       if (kept.length === 0) return undefined
-      return LLMRequest.update(request, {
-        messages: [...lead, Message.user(note(exchanges.length - kept.length) + kept.join("\n\n"))],
-      })
+      return transcript(kept, exchanges.length - kept.length)
     }
 
     const stream = (context: SessionContext.Loaded, request: LLMRequest, options: StreamOptions) => {
@@ -773,15 +786,18 @@ const oldestToDrop = <T>(items: ReadonlyArray<T>, size: (item: T) => number, bud
   return start
 }
 
-/** One request message as a flattened transcript line. Empty for what the transcript leaves out. */
-const flattenMessage = (message: Message) => {
+/** One request message as a flattened transcript line, cutting tool inputs and outputs to `toolLimit` characters. */
+const flattenMessage = (message: Message, toolLimit: number) => {
   if (message.role === "system") return ""
   return message.content
     .flatMap((part) => {
       if (part.type === "text")
         return part.text ? [`[${message.role === "user" ? "User" : "Assistant"}]: ${part.text}`] : []
       if (part.type === "media") return [`[${part.media.mediaType} omitted]`]
-      if (part.type === "tool-call") return [`[Assistant tool call]: ${part.name}(${JSON.stringify(part.input) ?? ""})`]
+      if (part.type === "tool-call")
+        return [
+          `[Assistant tool call]: ${part.name}(${SessionRecentText.truncateToolOutput(JSON.stringify(part.input) ?? "", toolLimit)})`,
+        ]
       if (part.type !== "tool-result") return []
       const result = part.result
       const output =
@@ -791,7 +807,7 @@ const flattenMessage = (message: Message) => {
             ? result.value
             : (JSON.stringify(result.value) ?? "")
       const label = result.type === "error" ? "Tool error" : "Tool result"
-      return [`[${label}]: ${SessionRecentText.truncateToolOutput(output)}`]
+      return [`[${label}]: ${SessionRecentText.truncateToolOutput(output, toolLimit)}`]
     })
     .join("\n")
 }

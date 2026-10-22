@@ -2959,7 +2959,7 @@ describe("SessionRunnerLLM", () => {
     expect(userTexts(s.requests[1])[0]).toContain("Request 3:")
   })
 
-  scenario("serializes history and omits media after a summary input overflow", function* (s) {
+  scenario("serializes history without system prompt, tools or media after a summary input overflow", function* (s) {
     const image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
     yield* s.session.prompt({
       sessionID,
@@ -2995,11 +2995,53 @@ describe("SessionRunnerLLM", () => {
     expect(s.requests[1]?.messages.every((message) => message.role === "user")).toBeTrue()
     expect(userTexts(s.requests[1])[0]).toContain("[image/png omitted]")
     expect(userTexts(s.requests[1])[0]).toContain("[Tool result]:")
-    expect(userTexts(s.requests[1])[0]).toContain(`${"x".repeat(1_250)}\n[truncated]`)
-    expect(userTexts(s.requests[1])[0]).not.toContain("x".repeat(1_251))
-    expect(s.requests[1]?.system).toEqual(s.requests[0]?.system)
-    expect(s.requests[1]?.tools).toEqual(s.requests[0]?.tools)
+    // Tool output is only cut when the transcript would not fit whole.
+    expect(userTexts(s.requests[1])[0]).toContain("x".repeat(5_000))
+    expect(s.requests[1]?.system).toEqual([])
+    expect(s.requests[1]?.tools).toEqual([])
     expect((yield* s.messages).find((message) => message.id === compaction.id)).toMatchObject({ status: "completed" })
+  })
+
+  scenario("cuts tool output in serialized compaction history before omitting exchanges", function* (s) {
+    const service = yield* SessionCompaction.Service
+    yield* service.transform((editor) => editor.configure({ buffer: 3_000 }))
+    s.currentModel = testModel("large-history", { context: 1_000_000, output: 32_000 })
+    yield* s.llm.push(
+      ...Array.from({ length: 2 }, (_, index) =>
+        TestLLM.stop(
+          ...Array.from({ length: 12 }, (_, call) => [
+            LLMEvent.toolCall({
+              id: `hosted-${index}-${call}`,
+              name: "web_search",
+              input: { query: "q" },
+              providerExecuted: true,
+            }),
+            LLMEvent.toolResult({
+              id: `hosted-${index}-${call}`,
+              name: "web_search",
+              result: { type: "text", value: "x".repeat(2_000) },
+              providerExecuted: true,
+            }),
+          ]).flat(),
+          LLMEvent.textStart({ id: `answer-${index}` }),
+          LLMEvent.textDelta({ id: `answer-${index}`, text: `Answer ${index}` }),
+          LLMEvent.textEnd({ id: `answer-${index}` }),
+        ),
+      ),
+    )
+    yield* Effect.forEach([0, 1], (index) => s.runPrompt(`Request ${index}`))
+    s.currentModel = testModel("smaller-history", { context: 7_000, output: 1_000 })
+    s.requests.length = 0
+    yield* s.llm.push(TestLLM.text("## Objective\n- Recovered", "summary"))
+    yield* s.session.compact({ sessionID })
+    yield* s.resume
+
+    expect(s.requests).toHaveLength(1)
+    expect(userTexts(s.requests[0])[0]).toContain("Request 0")
+    // Cut to 1,250 characters the outputs still do not fit, so they are cut to 200 rather than dropping the exchange.
+    expect(userTexts(s.requests[0])[0]).toContain(`${"x".repeat(200)}\n[truncated]`)
+    expect(userTexts(s.requests[0])[0]).not.toContain("x".repeat(201))
+    expect(userTexts(s.requests[0])[0]).not.toContain("omitted")
   })
 
   scenario("fits serialized compaction history by omitting oldest exchanges", function* (s) {

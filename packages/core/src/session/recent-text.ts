@@ -39,7 +39,9 @@ export const messageToText = (message: SessionMessage.Info): string => {
       return message.content
         .flatMap((part) => {
           if (part.type === "text") return [`[Assistant]: ${part.text}`]
-          if (part.type === "reasoning") return part.text ? [`[Assistant reasoning]: ${part.text}`] : []
+          // Providers return summaries of the real reasoning, and written out as text it can read like an attempt to
+          // extract the model's thinking.
+          if (part.type === "reasoning") return []
 
           const input = typeof part.state.input === "string" ? part.state.input : JSON.stringify(part.state.input)
           const call = `[Assistant tool call]: ${part.name}(${input})`
@@ -66,14 +68,14 @@ export const messageToText = (message: SessionMessage.Info): string => {
   }
 }
 
-export const truncateToolOutput = (value: string) => {
-  if (value.length <= TOOL_OUTPUT_MAX_CHARS) return value
+export const truncateToolOutput = (value: string, max = TOOL_OUTPUT_MAX_CHARS) => {
+  if (value.length <= max) return value
 
   // Count code points so a surrogate pair is never split.
   let end = 0
   let kept = 0
   for (const char of value) {
-    if (kept === TOOL_OUTPUT_MAX_CHARS) break
+    if (kept === max) break
     end += char.length
     kept++
   }
