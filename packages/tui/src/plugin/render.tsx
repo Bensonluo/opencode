@@ -1,4 +1,5 @@
 import {
+  children,
   createComponent,
   createContext,
   createMemo,
@@ -42,6 +43,18 @@ function PluginBoundary(props: ParentProps<{ id: string; where: string }>) {
     >
       {props.children}
     </ErrorBoundary>
+  )
+}
+
+function SlotContent(props: ParentProps) {
+  // The host inserts returned roots after the boundary resolves. Bare text
+  // would fail there, outside the plugin's error handler. Leave elements
+  // untouched so valid contributions keep their layout and ownership.
+  const content = children(() => props.children)
+  return (
+    <For each={content.toArray()}>
+      {(item) => (typeof item === "string" || typeof item === "number" ? <text>{item}</text> : item)}
+    </For>
   )
 }
 
@@ -116,7 +129,7 @@ export function Slot<Path extends SlotPath>(props: SlotProps<Path>) {
   // merged getter.
   const contribution = (claim: Claim<SlotRender>) => (
     <PluginBoundary id={claim.plugin} where={`slot ${path}`}>
-      {createComponent(claim.render, mergeProps(input))}
+      <SlotContent>{createComponent(claim.render, mergeProps(input))}</SlotContent>
     </PluginBoundary>
   )
   return (
