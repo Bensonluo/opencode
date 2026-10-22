@@ -76,7 +76,14 @@ export const Plugin = define({
         })
         const definitions = new Map<string, { readonly inherit: boolean; readonly base?: Model.Info }>()
         for (const [id, config] of Object.entries(item.models ?? {})) {
-          const base = source?.models.get(config.modelID ?? id) ?? source?.models.get(id)
+          const lookup = config.modelID ?? id
+          // Catalogs list routing-suffixed variants (OpenRouter ":floor", ":free", …) under the base
+          // model id, so an exact miss inherits from the base when the suffix is the only difference.
+          const stripped = lookup.replace(/:[^:/]*$/, "")
+          const base =
+            source?.models.get(lookup) ??
+            source?.models.get(id) ??
+            (stripped !== lookup ? source?.models.get(stripped) : undefined)
           const inherit = changed || !current?.models.has(id)
           // Bind the source at this point in the provider fold. Later source edits/removal
           // and its credential availability must not change an already-defined alias.
