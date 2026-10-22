@@ -3,24 +3,23 @@ import { Protocol } from "../route/protocol.js"
 import { LLMRequest } from "../schema/index.js"
 import { AnthropicMessages } from "./anthropic-messages.js"
 import { ProviderShared } from "./shared.js"
-import type { ZAIChat } from "./zai-chat.js"
-
-export type OptionsInput = {
-  readonly effort?: ZAIChat.ReasoningEffort
-  readonly thinking?: { readonly type: "enabled" | "adaptive" | "disabled" | (string & {}) }
-}
+import { OpenResponsesOptions } from "./utils/open-responses-options.js"
 
 const Options = Schema.Struct({
-  effort: Schema.optional(Schema.String),
-  thinking: Schema.optional(Schema.Struct({ type: Schema.String })),
+  effort: Schema.optional(OpenResponsesOptions.ReasoningEffort),
+  thinking: Schema.optional(
+    Schema.Struct({ type: ProviderShared.knownString<"enabled" | "adaptive" | "disabled">() }),
+  ),
 })
+export type OptionsInput = typeof Options.Type
+const decodeOptions = ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))
 const Body = Schema.Struct({
   ...AnthropicMessages.AnthropicMessagesBody.fields,
   thinking: Options.fields.thinking,
 })
 
 const fromRequest = Effect.fn("ZAIMessages.fromRequest")(function* (request: LLMRequest) {
-  const options = yield* ProviderShared.validateWith(Schema.decodeUnknownEffect(Options))(request.providerOptions ?? {})
+  const options = yield* decodeOptions(request.providerOptions ?? {})
   // Z.AI accepts enabled thinking without Anthropic's mandatory token budget.
   const body = yield* AnthropicMessages.protocol.body.from(
     LLMRequest.update(request, {

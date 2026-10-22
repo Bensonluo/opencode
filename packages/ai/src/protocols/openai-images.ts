@@ -84,7 +84,7 @@ const StreamEvent = Schema.Union([
 ])
 
 const decodeEvent = route.decodeFrame(StreamEvent)
-const decodeDocument = Schema.decodeUnknownEffect(Schema.fromJsonString(OpenAIImageResponse))
+const decodeDocument = route.decodeFrame(OpenAIImageResponse)
 
 /** `generate` reads the whole JSON response as one frame, with the requested format for responses that omit it. */
 type Frame = string | { readonly document: string; readonly requested: string | undefined }
@@ -231,9 +231,7 @@ const onEvent = Effect.fnUntraced(function* (state: State, frame: string) {
 
 const onDocument = Effect.fnUntraced(function* (frame: Exclude<Frame, string>) {
   const invalid = (message: string, cause?: unknown) => route.frameError(message, frame.document, cause)
-  const decoded = yield* decodeDocument(frame.document).pipe(
-    Effect.mapError((cause) => invalid(`${route.name} returned an invalid response`, cause)),
-  )
+  const decoded = yield* decodeDocument(frame.document)
   const format = decoded.output_format ?? frame.requested ?? "png"
   const images = yield* Effect.forEach(decoded.data, (item, index) =>
     MediaInput.decodedAsset(invalid, `${route.name} result ${index}`, item.b64_json, `image/${format}`, {
