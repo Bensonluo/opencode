@@ -93,6 +93,33 @@ test("patterns with a leading anchor get a trailing anchor for strict providers"
 })
 
 test.each([
+  [/^(a|b)/u, "^(a|b).*$"],
+  [/^((a)|(b))/u, "^((a)|(b)).*$"],
+  [/^(?:a|b)/u, "^(?:a|b).*$"],
+  [/^(?=a|b)/u, "^(?=a|b).*$"],
+  [/^(a|b)|c/u, "^(a|b)|c"],
+  [/^\(a|b\)/u, "^\\(a|b\\)"],
+  [/^a\|b/u, "^a\\|b.*$"],
+  [/^[()|]/u, "^[()|].*$"],
+  [/^[(]a|b/u, "^[(]a|b"],
+  [/^[)](a|b)/u, "^[)](a|b).*$"],
+  [/^/u, "^"],
+] as const)("pattern export preserves grouping and empty anchors: %s", (pattern, expected) => {
+  const tool: Info = {
+    name: "pattern",
+    description: "Pattern boundary cases",
+    input: Schema.String.check(Schema.isPattern(pattern)),
+    execute: () => Effect.succeed({ content: "unused" }),
+  }
+
+  expect(definition(tool).inputSchema).toEqual({ type: "string", pattern: expected })
+  const exported = new RegExp(expected, "u")
+  const values =
+    pattern.source === "^" ? ["", "a\nb", "a\n"] : ["", "a", "b", "abc", "bzzz", "c", "xb", "(a", "b)", "a|b"]
+  for (const value of values) expect(exported.test(value)).toBe(pattern.test(value))
+})
+
+test.each([
   { name: "plain", input: Schema.Struct({}), metadata: {} },
   {
     name: "annotated",

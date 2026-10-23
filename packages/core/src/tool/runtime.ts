@@ -216,7 +216,7 @@ const anchorPatterns = (value: unknown): unknown => {
 }
 
 const anchorPattern = (pattern: string) => {
-  if (!startsWithAnchor(pattern) || endsWithAnchor(pattern)) return pattern
+  if (pattern === "^" || !startsWithAnchor(pattern) || endsWithAnchor(pattern)) return pattern
   const body = pattern.slice(1)
   // A top-level "|" only anchors the first branch ("^a|b" also matches any value
   // containing "b"), so appending ".*$" would narrow the accepted set. Leave it.
@@ -236,12 +236,17 @@ const isUnescaped = (value: string, index: number) => {
 
 const topLevelAlternation = (pattern: string) => {
   let inClass = false
+  let depth = 0
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i]
     if (char === "\\") i++
     else if (char === "[") inClass = true
     else if (char === "]") inClass = false
-    else if (char === "|" && !inClass) return true
+    else if (!inClass) {
+      if (char === "(") depth++
+      else if (char === ")") depth--
+      else if (char === "|" && depth === 0) return true
+    }
   }
   return false
 }
