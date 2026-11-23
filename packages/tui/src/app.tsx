@@ -545,16 +545,32 @@ function App() {
     renderer.off(CliRenderEvents.FRAME, afterFrame)
     if (paletteTimer) clearTimeout(paletteTimer)
   })
+  // The effect tracks the session record, and another terminal's prompt replaces that record
+  // through a resync in every terminal that has the session open. Posting again then would
+  // overwrite the environment of the terminal that sent the prompt, so each session is posted
+  // once per connection. A reconnect posts again, because the server may have restarted.
+  const environmentPosted = new Set<string>()
   createEffect(() => {
-    if (client.connection.status() !== "connected") return
+    if (client.connection.status() !== "connected") {
+      environmentPosted.clear()
+      return
+    }
     if (route.data.type !== "session") return
     const session = data.session.get(route.data.sessionID)
-    if (!session) return
+    if (!session) {
+      environmentPosted.delete(route.data.sessionID)
+      return
+    }
     if (data.session.creating(session.id)) return
     if (terminalEnvironment.variables === undefined) return
+    if (environmentPosted.has(session.id)) return
+    environmentPosted.add(session.id)
     void client.api.session
       .environment({ sessionID: session.id, variables: terminalEnvironment.variables })
-      .catch(toast.error)
+      .catch((error) => {
+        environmentPosted.delete(session.id)
+        toast.error(error)
+      })
   })
   const [layout, updateLayout] = useStorage().store<{ verticalTabsWidth?: number }>("layout", {
     initial: { verticalTabsWidth: SESSION_SIDEBAR_WIDTH },
